@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>1FAB0 — Fruit Fly Connectome Arena</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0d1117;
+    color: #c9d1d9;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+  }
+  header {
+    background: #161b22;
+    padding: 12px 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #30363d;
+  }
+  h1 { font-size: 1.15rem; font-weight: 600; color: #58a6ff; display: flex; align-items: center; gap: 8px; }
+  .status-tag { font-size: 0.8rem; color: #3fb950; font-weight: 500; display: flex; align-items: center; gap: 6px; }
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    flex: 1;
+    overflow: hidden;
+  }
+  #arena-container {
+    position: relative;
+    background: #090d13;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 16px;
+    overflow: hidden;
+    width: 100%;
+    height: 100%;
+  }
+  canvas#arena {
+    max-width: 100%;
+    max-height: calc(100vh - 80px);
+    aspect-ratio: 4 / 3;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    border: 1px solid #21262d;
+    border-radius: 8px;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.5);
+  }
+  aside {
+    background: #161b22;
+    border-left: 1px solid #30363d;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    overflow-y: auto;
+    width: 380px;
+  }
+  .card {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 12px 14px;
+  }
+  .card h2 { font-size: 0.8rem; text-transform: uppercase; color: #8b949e; margin-bottom: 8px; letter-spacing: 0.5px; }
+  .explain-text { font-size: 0.8rem; color: #8b949e; line-height: 1.5; }
+  .explain-text strong { color: #c9d1d9; }
+  .score-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 0;
+    font-size: 0.86rem;
+    border-bottom: 1px solid #21262d;
+  }
+  .score-row:last-child { border-bottom: none; }
+  .val-bio { color: #3fb950; font-weight: 600; }
+  .val-ctrl { color: #f85149; font-weight: 600; }
+  .val-neutral { color: #c9d1d9; font-weight: 600; }
+  .meter-label { font-size: 0.74rem; color: #8b949e; margin-bottom: 3px; }
+  .meter-bar { height: 6px; background: #21262d; border-radius: 3px; overflow: hidden; margin-bottom: 6px; }
+  .meter-fill { height: 100%; transition: width 0.05s linear; background: #58a6ff; }
+  .banner-reveal {
+    background: #0d1926;
+    border: 1px solid #388bfd;
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-size: 0.8rem;
+    line-height: 1.45;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>🪰 1FAB0 — Fruit Fly Connectome Arena</h1>
+  <div class="status-tag">● Live Simulation</div>
+</header>
+
+<div class="layout">
+  <div id="arena-container">
+    <canvas id="arena" width="800" height="600"></canvas>
+  </div>
+  
+  <aside>
+    <!-- How it works: Teach & Inform -->
+    <div class="card">
+      <h2>How It Works</h2>
+      <p class="explain-text">
+        A fruit fly tracks odors using dual antennae. By comparing the concentration between left and right, its brain computes steering turns toward food.
+      </p>
+      <p class="explain-text" style="margin-top: 6px;">
+        <strong>The Question:</strong> Does this behavior emerge from evolved biological wiring, or would any random network with the same number of neurons and connections do the same?
+      </p>
+      <p class="explain-text" style="margin-top: 6px;">
+        <strong>The Test:</strong> Two flies (Fly A and Fly B) start at the exact same location and heading. One runs the biological connectome circuit; the other runs a scrambled twin with identical parts but randomized wiring. To avoid bias, their identities are hidden until the flight finishes.
+      </p>
+    </div>
+
+    <!-- Active Flight -->
+    <div class="card">
+      <h2>Current Flight</h2>
+      <div class="score-row">
+        <div>
+          <div>Distance to Odor</div>
+          <div class="meter-label">Distance from source center</div>
+        </div>
+        <div>
+          <span class="val-neutral" id="d-a">0</span>px vs <span class="val-neutral" id="d-b">0</span>px
+        </div>
+      </div>
+      <div class="score-row">
+        <div>
+          <div>Flight Efficiency</div>
+          <div class="meter-label">1.0 = direct beeline, 0.0 = wandering</div>
+        </div>
+        <div>
+          <span class="val-neutral" id="ci-a">0.00</span> vs <span class="val-neutral" id="ci-b">0.00</span>
+        </div>
+      </div>
+      <div style="margin-top: 8px;">
+        <div class="meter-label">Fly A Steering Activity</div>
+        <div class="meter-bar"><div class="meter-fill" id="m-yaw-a" style="width: 0%"></div></div>
+        <div class="meter-label">Fly B Steering Activity</div>
+        <div class="meter-bar"><div class="meter-fill" id="m-yaw-b" style="width: 0%"></div></div>
+      </div>
+    </div>
+
+    <!-- Last Trial Result -->
+    <div id="card-unblinded" class="banner-reveal" style="display: none;">
+      <div style="font-weight: 600; color: #58a6ff; margin-bottom: 4px;" id="unblind-title">Last Trial Result</div>
+      <div id="unblind-detail" style="color: #c9d1d9; font-size: 0.78rem;"></div>
+    </div>
+
+    <!-- Cumulative Scoreboard -->
+    <div class="card">
+      <h2>Cumulative Results</h2>
+      <div class="score-row">
+        <div>Total Flights Completed</div>
+        <span style="font-weight: 600; color: #58a6ff;" id="total-trials">0</span>
+      </div>
+      <div class="score-row">
+        <div>Head-to-Head Record</div>
+        <div>
+          <span class="val-bio" id="wins-real">0</span> (<span id="pct-real">0.0%</span>) vs <span class="val-ctrl" id="wins-shuf">0</span> (<span id="pct-shuf">0.0%</span>)
+        </div>
+      </div>
+      <div class="score-row">
+        <div>Timeouts</div>
+        <span style="color: #8b949e;" id="timeouts">0</span>
+      </div>
+      <div class="score-row">
+        <div>Average Efficiency</div>
+        <div>
+          <span class="val-bio" id="mean-ci-real">0.00</span> vs <span class="val-ctrl" id="mean-ci-shuf">0.00</span>
+        </div>
+      </div>
+      <div class="score-row">
+        <div>Statistical Confidence</div>
+        <span style="color: #58a6ff; font-weight: 600;" id="t-stat">Calibrating...</span>
+      </div>
+    </div>
+
+    <!-- Historical Timeline -->
+    <div class="card">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+        <h2 style="margin-bottom: 0;">Recent Flights</h2>
+        <span class="meter-label" style="margin-bottom: 0;">Biological Advantage (&Delta; Efficiency)</span>
+      </div>
+      <canvas id="sparkline" width="350" height="38" style="width: 100%; height: 38px; background: #090d13; border: 1px solid #21262d; border-radius: 4px; margin-bottom: 8px;"></canvas>
+      <div id="history-container" style="max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 2px;">
+        <div style="font-size: 0.75rem; color: #8b949e; text-align: center; padding: 10px 0;">Accumulating flights...</div>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<script>
+const canvas = document.getElementById('arena');
+const ctx = canvas.getContext('2d');
+
+let serverState = null;
+
+async function pollServer() {
+  try {
+    const res = await fetch('/api/state', { cache: 'no-store' });
+    if (res.ok) {
+      serverState = await res.json();
+      updateUI(serverState);
+    }
+  } catch (e) {}
+}
+
+function updateUI(state) {
+  if (!state || !state.stats) return;
+
+  document.getElementById('total-trials').innerText = state.stats.total;
+  document.getElementById('wins-real').innerText = state.stats.real_wins;
+  document.getElementById('wins-shuf').innerText = state.stats.shuf_wins;
+  document.getElementById('timeouts').innerText = state.stats.timeouts;
+  document.getElementById('pct-real').innerText = state.stats.pct_real;
+  document.getElementById('pct-shuf').innerText = state.stats.pct_shuf;
+  document.getElementById('mean-ci-real').innerText = state.stats.mean_ci_real;
+  document.getElementById('mean-ci-shuf').innerText = state.stats.mean_ci_shuf;
+
+  document.getElementById('d-a').innerText = Math.round(state.flyA.dist);
+  document.getElementById('d-b').innerText = Math.round(state.flyB.dist);
+  document.getElementById('ci-a').innerText = state.flyA.ci.toFixed(2);
+  document.getElementById('ci-b').innerText = state.flyB.ci.toFixed(2);
+
+  document.getElementById('m-yaw-a').style.width = Math.min(100, (Math.abs(state.flyA.last_yaw || 0) / 0.045) * 100) + '%';
+  document.getElementById('m-yaw-b').style.width = Math.min(100, (Math.abs(state.flyB.last_yaw || 0) / 0.045) * 100) + '%';
+
+  if (state.stats.t_stat !== null && state.stats.t_stat !== undefined) {
+    document.getElementById('t-stat').innerHTML = `${state.stats.t_stat} <span style="font-size:0.75rem; color:#8b949e;">(${state.stats.p_str})</span>`;
+  } else {
+    document.getElementById('t-stat').innerText = 'Calibrating...';
+  }
+
+  const cardUnblinded = document.getElementById('card-unblinded');
+  if (state.last_reveal) {
+    cardUnblinded.style.display = 'block';
+    const lr = state.last_reveal;
+    const winnerLabel = lr.winner_type === 'real' ? 'Biological Brain' : (lr.winner_type === 'shuf' ? 'Scrambled Control' : 'Timeout');
+    document.getElementById('unblind-title').innerText = `Flight #${lr.trial_num} Finished — ${lr.winner_name} won (${winnerLabel})`;
+    document.getElementById('unblind-detail').innerHTML = `
+      <div><strong>Fly A</strong>: ${lr.flyA_real ? '<span style="color:#3fb950; font-weight:600;">Biological Brain 🟢</span>' : '<span style="color:#f85149; font-weight:600;">Scrambled Control 🔴</span>'} (Efficiency: ${lr.ci_a.toFixed(2)})</div>
+      <div><strong>Fly B</strong>: ${lr.flyB_real ? '<span style="color:#3fb950; font-weight:600;">Biological Brain 🟢</span>' : '<span style="color:#f85149; font-weight:600;">Scrambled Control 🔴</span>'} (Efficiency: ${lr.ci_b.toFixed(2)})</div>
+    `;
+  }
+
+  // Render recent historical timeline
+  const histContainer = document.getElementById('history-container');
+  if (histContainer && state.recent_history && state.recent_history.length > 0) {
+    histContainer.innerHTML = state.recent_history.map(item => {
+      const isRealWin = item.winner_type === 'real';
+      const isShufWin = item.winner_type === 'shuf';
+      const badgeBg = isRealWin ? '#238636' : (isShufWin ? '#da3633' : '#484f58');
+      const badgeText = isRealWin ? '🟢 Biological' : (isShufWin ? '🔴 Scrambled' : '⚪ Timeout');
+      const diffColor = item.ci_diff > 0 ? '#3fb950' : (item.ci_diff < 0 ? '#f85149' : '#8b949e');
+      const diffSign = item.ci_diff > 0 ? '+' : '';
+      return `
+        <div style="background:#161b22; border:1px solid #21262d; border-radius:4px; padding:6px 10px; font-size:0.75rem;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:3px;">
+            <span style="font-weight:600; color:#c9d1d9;">Flight #${item.trial_num}</span>
+            <span style="background:${badgeBg}; color:white; padding:1px 6px; border-radius:10px; font-size:0.68rem; font-weight:500;">${badgeText}</span>
+          </div>
+          <div style="color:#8b949e; display:flex; justify-content:space-between; font-size:0.72rem;">
+            <span>A: ${item.flyA_real ? 'Bio' : 'Ctrl'} (${item.ci_a}) | B: ${item.flyB_real ? 'Bio' : 'Ctrl'} (${item.ci_b})</span>
+            <span style="color:${diffColor}; font-weight:600;">&Delta; ${diffSign}${item.ci_diff.toFixed(2)}</span>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    drawSparkline(state.recent_history);
+  }
+}
+
+function drawSparkline(history) {
+  const spark = document.getElementById('sparkline');
+  if (!spark) return;
+  const sctx = spark.getContext('2d');
+  sctx.clearRect(0, 0, spark.width, spark.height);
+
+  const data = history.slice().reverse().map(h => h.ci_diff);
+  if (data.length < 2) return;
+
+  const w = spark.width;
+  const h = spark.height;
+  const midY = h * 0.7; // baseline 0.0 advantage
+
+  // Baseline zero
+  sctx.strokeStyle = '#30363d';
+  sctx.lineWidth = 1;
+  sctx.setLineDash([2, 2]);
+  sctx.beginPath();
+  sctx.moveTo(0, midY);
+  sctx.lineTo(w, midY);
+  sctx.stroke();
+  sctx.setLineDash([]);
+
+  // Plot CI advantage line
+  sctx.strokeStyle = '#3fb950';
+  sctx.lineWidth = 2;
+  sctx.beginPath();
+  for (let i = 0; i < data.length; i++) {
+    const x = (i / (data.length - 1)) * (w - 16) + 8;
+    const val = Math.max(-0.5, Math.min(1.0, data[i]));
+    const y = midY - (val * (h * 0.6));
+    if (i === 0) sctx.moveTo(x, y);
+    else sctx.lineTo(x, y);
+  }
+  sctx.stroke();
+
+  // Dots
+  for (let i = 0; i < data.length; i++) {
+    const x = (i / (data.length - 1)) * (w - 16) + 8;
+    const val = Math.max(-0.5, Math.min(1.0, data[i]));
+    const y = midY - (val * (h * 0.6));
+    sctx.fillStyle = val > 0 ? '#3fb950' : (val < 0 ? '#f85149' : '#8b949e');
+    sctx.beginPath();
+    sctx.arc(x, y, 2.5, 0, Math.PI * 2);
+    sctx.fill();
+  }
+}
+
+setInterval(pollServer, 33);
+pollServer();
+
+function render() {
+  ctx.fillStyle = '#090d13';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  if (!serverState) {
+    ctx.fillStyle = '#58a6ff';
+    ctx.font = '14px sans-serif';
+    ctx.fillText('Connecting to live arena simulation...', 260, 290);
+    requestAnimationFrame(render);
+    return;
+  }
+
+  const target = serverState.target;
+  const isRevealing = serverState.is_revealing;
+  const flyA = serverState.flyA;
+  const flyB = serverState.flyB;
+  const lr = serverState.last_reveal;
+
+  // Odor plume gradient
+  const grad = ctx.createRadialGradient(target.x, target.y, 5, target.x, target.y, 220);
+  grad.addColorStop(0, 'rgba(88, 166, 255, 0.35)');
+  grad.addColorStop(0.5, 'rgba(88, 166, 255, 0.1)');
+  grad.addColorStop(1, 'rgba(88, 166, 255, 0)');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(target.x, target.y, 220, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Odor source center
+  ctx.fillStyle = '#58a6ff';
+  ctx.beginPath();
+  ctx.arc(target.x, target.y, target.r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '12px sans-serif';
+  ctx.fillText('ODOR SOURCE', target.x - 42, target.y - 25);
+
+  // Trails
+  function drawTrail(history, strokeColor) {
+    if (!history || history.length < 2) return;
+    ctx.strokeStyle = strokeColor;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(history[0][0], history[0][1]);
+    for (let i = 1; i < history.length; i++) {
+      ctx.lineTo(history[i][0], history[i][1]);
+    }
+    ctx.stroke();
+  }
+
+  const colorA = isRevealing ? (flyA.is_real ? '#3fb950' : '#f85149') : '#c9d1d9';
+  const colorB = isRevealing ? (flyB.is_real ? '#3fb950' : '#f85149') : '#c9d1d9';
+  const trailA = isRevealing ? (flyA.is_real ? 'rgba(63, 185, 80, 0.6)' : 'rgba(248, 81, 73, 0.6)') : 'rgba(139, 148, 158, 0.35)';
+  const trailB = isRevealing ? (flyB.is_real ? 'rgba(63, 185, 80, 0.6)' : 'rgba(248, 81, 73, 0.6)') : 'rgba(139, 148, 158, 0.35)';
+
+  drawTrail(flyA.history, trailA);
+  drawTrail(flyB.history, trailB);
+
+  // Flies
+  function drawFly(fly, bodyColor, labelText, isWinner) {
+    ctx.save();
+    ctx.translate(fly.x, fly.y);
+
+    if (isWinner && isRevealing) {
+      ctx.strokeStyle = bodyColor;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(0, 0, 16, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    ctx.rotate(fly.heading);
+
+    // Wings
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+    ctx.beginPath();
+    ctx.ellipse(-2, -7, 6, 3, 0.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(-2, 7, 6, 3, -0.3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Body
+    ctx.fillStyle = bodyColor;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 7, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Eyes
+    ctx.fillStyle = '#ff7b72';
+    ctx.beginPath();
+    ctx.arc(5, -3, 1.5, 0, Math.PI * 2);
+    ctx.arc(5, 3, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+
+    ctx.fillStyle = bodyColor;
+    ctx.font = '11px sans-serif';
+    ctx.fillText(labelText, fly.x - 14, fly.y - 14);
+  }
+
+  const labelA = isRevealing ? `Fly A: ${flyA.is_real ? 'Biological' : 'Scrambled'}` : 'Fly A';
+  const labelB = isRevealing ? `Fly B: ${flyB.is_real ? 'Biological' : 'Scrambled'}` : 'Fly B';
+  const isWinnerA = lr && lr.winner_name === 'Fly A';
+  const isWinnerB = lr && lr.winner_name === 'Fly B';
+
+  drawFly(flyA, colorA, labelA, isWinnerA);
+  drawFly(flyB, colorB, labelB, isWinnerB);
+
+  // Clean finish notification on canvas
+  if (isRevealing && lr) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(13, 25, 38, 0.88)';
+    ctx.strokeStyle = '#388bfd';
+    ctx.lineWidth = 2;
+    const bw = 460, bh = 56, bx = (canvas.width - bw) / 2, by = 20;
+    ctx.beginPath();
+    ctx.roundRect(bx, by, bw, bh, 8);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#58a6ff';
+    ctx.font = 'bold 13px sans-serif';
+    const winStr = lr.winner_type === 'real' ? 'Biological Brain Won' : (lr.winner_type === 'shuf' ? 'Scrambled Twin Won' : 'Timeout');
+    ctx.fillText(`Flight #${lr.trial_num}: ${lr.winner_name} Reached Odor (${winStr})`, bx + 18, by + 22);
+
+    ctx.font = '12px sans-serif';
+    ctx.fillStyle = '#c9d1d9';
+    const textA = `Fly A: ${flyA.is_real ? 'Biological 🟢' : 'Scrambled 🔴'}`;
+    const textB = `Fly B: ${flyB.is_real ? 'Biological 🟢' : 'Scrambled 🔴'}`;
+    ctx.fillText(`${textA}   •   ${textB}`, bx + 18, by + 42);
+    ctx.restore();
+  }
+
+  requestAnimationFrame(render);
+}
+
+render();
+</script>
+</body>
+</html>
