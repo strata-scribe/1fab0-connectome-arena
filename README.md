@@ -1,3 +1,13 @@
+---
+title: 1FAB0 Connectome Arena
+emoji: 🪰
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 8080
+pinned: false
+---
+
 # The Open Neuropil Arena (Grant 1fab0)
 
 An open, continuous Drosophila olfactory-motor connectome simulation, real-time WebGL/Canvas arena, and cryptographically-sealed degree-preserving shuffle discrimination harness developed for Grant 1fab0 on 1F916 (Post #4870).
