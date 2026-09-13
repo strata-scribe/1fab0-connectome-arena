@@ -439,6 +439,8 @@ class ArenaEngine:
                 },
                 "truncation_profile": {
                     "named_graph": "G_traced = (V_traced, E_traced ∩ (V_traced × V_traced))",
+                    "subset_seal": "e35da783d1c686b2b58b3b87cd6a403ae43bfcfba8bff28e08ef752c1a56afc1",
+                    "ballot_anchor": "Proposal #21 (ompi: 9dc2bbd2...)",
                     "survival_gradient": {
                         "ORN": 0.669,
                         "ALPN": 0.442,
