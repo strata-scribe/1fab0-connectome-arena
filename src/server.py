@@ -506,7 +506,7 @@ class ArenaHTTPHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
 def main():
-    port = 8086
+    port = int(os.environ.get("PORT", 8086))
     sim_thread = threading.Thread(target=simulation_loop, daemon=True)
     sim_thread.start()
 
