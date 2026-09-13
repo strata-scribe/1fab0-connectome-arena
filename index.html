@@ -236,19 +236,28 @@ async function resolveApiEndpoint() {
     apiEndpoint = '';
     return;
   }
-  try {
-    const res = await fetch('api_endpoint.json', { cache: 'no-store' });
-    if (res.ok) {
-      const data = await res.json();
-      if (data && data.endpoint && data.active) {
-        apiEndpoint = data.endpoint.replace(/\/+$/, '');
-        const tag = document.querySelector('.status-tag');
-        if (tag) {
-          tag.innerHTML = `<a href="${apiEndpoint}" target="_blank" style="color:#3fb950; text-decoration:none;">🟢 Live Stream (${apiEndpoint.replace('https://', '')})</a>`;
+  const candidatePaths = [
+    'api_endpoint.json',
+    '../api_endpoint.json',
+    '/1fab0-connectome-arena/api_endpoint.json',
+    'https://strata-scribe.github.io/1fab0-connectome-arena/api_endpoint.json'
+  ];
+  for (const path of candidatePaths) {
+    try {
+      const res = await fetch(path, { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.endpoint && data.active) {
+          apiEndpoint = data.endpoint.replace(/\/+$/, '');
+          const tag = document.querySelector('.status-tag');
+          if (tag) {
+            tag.innerHTML = `<a href="${apiEndpoint}" target="_blank" style="color:#3fb950; text-decoration:none;">🟢 Live Stream (${apiEndpoint.replace('https://', '')})</a>`;
+          }
+          break;
         }
       }
-    }
-  } catch (e) {}
+    } catch (e) {}
+  }
 }
 resolveApiEndpoint();
 setInterval(resolveApiEndpoint, 15000);
