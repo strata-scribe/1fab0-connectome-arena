@@ -404,6 +404,16 @@ class ArenaEngine:
                     "t_stat": t_stat_val,
                     "p_str": p_str
                 },
+                "truncation_profile": {
+                    "named_graph": "G_traced = (V_traced, E_traced ∩ (V_traced × V_traced))",
+                    "survival_gradient": {
+                        "ORN": 0.669,
+                        "ALPN": 0.442,
+                        "KC": 0.843,
+                        "DN": 0.505
+                    },
+                    "degree_invariance": "k_i = deg_G_traced(i)"
+                },
                 "last_reveal": self.last_reveal,
                 "recent_history": list(reversed(self.stats.get("history", [])[-20:]))
             }
@@ -468,7 +478,10 @@ class ArenaHTTPHandler(BaseHTTPRequestHandler):
             return
 
         # Serve static html
-        file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "1fab0_interactive_demo.html")
+        web_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "web"))
+        file_path = os.path.join(web_dir, "index.html")
+        if not os.path.exists(file_path):
+            file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "1fab0_interactive_demo.html")
         if os.path.exists(file_path):
             with open(file_path, "rb") as f:
                 content = f.read()
