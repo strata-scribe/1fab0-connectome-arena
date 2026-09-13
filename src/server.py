@@ -324,7 +324,9 @@ class ArenaEngine:
             "flyA_real": self.flyA.is_real,
             "flyB_real": self.flyB.is_real,
             "ci_a": round(ci_a, 2),
-            "ci_b": round(ci_b, 2)
+            "ci_b": round(ci_b, 2),
+            "ctrl_id": self.active_ctrl_id,
+            "ctrl_hash": self.active_ctrl_hash[:16] + "..."
         }
 
         # Record chronological trial entry in ledger
@@ -340,6 +342,8 @@ class ArenaEngine:
             "ci_real": round(ci_real, 2),
             "ci_shuf": round(ci_shuf, 2),
             "ci_diff": round(ci_real - ci_shuf, 2),
+            "ctrl_id": self.active_ctrl_id,
+            "ctrl_hash": self.active_ctrl_hash[:16] + "...",
             "rolling_t": t_stat_val,
             "p_str": p_str,
             "steps": self.step_count

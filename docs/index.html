@@ -208,6 +208,14 @@
         <div>Descending Motor (DN) Survival</div>
         <span class="val-neutral">0.505</span>
       </div>
+      <div class="score-row">
+        <div>Control Custody</div>
+        <span class="val-bio" id="ctrl-custody-rule">Authored-Elsewhere</span>
+      </div>
+      <div class="score-row" style="border-bottom: none;">
+        <div>Active Twin SHA-256</div>
+        <span style="color: #58a6ff; font-family: monospace; font-size: 0.72rem;" id="ctrl-hash-badge">Loading...</span>
+      </div>
     </div>
 
     <!-- Historical Timeline -->
@@ -299,6 +307,14 @@ function updateUI(state) {
     document.getElementById('t-stat').innerText = 'Calibrating...';
   }
 
+  if (state.truncation_profile && state.truncation_profile.control_custody) {
+    const cc = state.truncation_profile.control_custody;
+    const ruleEl = document.getElementById('ctrl-custody-rule');
+    if (ruleEl) ruleEl.innerText = `Authored-Elsewhere (#${cc.active_ctrl_id})`;
+    const hashEl = document.getElementById('ctrl-hash-badge');
+    if (hashEl) hashEl.innerText = cc.active_ctrl_sha256;
+  }
+
   const cardUnblinded = document.getElementById('card-unblinded');
   if (state.last_reveal) {
     cardUnblinded.style.display = 'block';
@@ -308,6 +324,9 @@ function updateUI(state) {
     document.getElementById('unblind-detail').innerHTML = `
       <div><strong>Fly A</strong>: ${lr.flyA_real ? '<span style="color:#3fb950; font-weight:600;">Biological Brain 🟢</span>' : '<span style="color:#f85149; font-weight:600;">Scrambled Control 🔴</span>'} (Efficiency: ${lr.ci_a.toFixed(2)})</div>
       <div><strong>Fly B</strong>: ${lr.flyB_real ? '<span style="color:#3fb950; font-weight:600;">Biological Brain 🟢</span>' : '<span style="color:#f85149; font-weight:600;">Scrambled Control 🔴</span>'} (Efficiency: ${lr.ci_b.toFixed(2)})</div>
+      <div style="margin-top:5px; padding-top:4px; border-top:1px dashed #21262d; font-size:0.72rem; color:#8b949e;">
+        🔒 Sealed Twin: <span style="font-family:monospace; color:#58a6ff;">#${lr.ctrl_id !== undefined ? lr.ctrl_id : '0'} (${lr.ctrl_hash || 'off-harness'})</span>
+      </div>
     `;
   }
 
@@ -503,10 +522,10 @@ function render() {
   // Clean finish notification on canvas
   if (isRevealing && lr) {
     ctx.save();
-    ctx.fillStyle = 'rgba(13, 25, 38, 0.88)';
+    ctx.fillStyle = 'rgba(13, 25, 38, 0.92)';
     ctx.strokeStyle = '#388bfd';
     ctx.lineWidth = 2;
-    const bw = 460, bh = 56, bx = (canvas.width - bw) / 2, by = 20;
+    const bw = 500, bh = 76, bx = (canvas.width - bw) / 2, by = 16;
     ctx.beginPath();
     ctx.roundRect(bx, by, bw, bh, 8);
     ctx.fill();
@@ -515,13 +534,19 @@ function render() {
     ctx.fillStyle = '#58a6ff';
     ctx.font = 'bold 13px sans-serif';
     const winStr = lr.winner_type === 'real' ? 'Biological Brain Won' : (lr.winner_type === 'shuf' ? 'Scrambled Twin Won' : 'Timeout');
-    ctx.fillText(`Flight #${lr.trial_num}: ${lr.winner_name} Reached Odor (${winStr})`, bx + 18, by + 22);
+    ctx.fillText(`Flight #${lr.trial_num}: ${lr.winner_name} Reached Odor (${winStr})`, bx + 16, by + 22);
 
     ctx.font = '12px sans-serif';
     ctx.fillStyle = '#c9d1d9';
     const textA = `Fly A: ${flyA.is_real ? 'Biological 🟢' : 'Scrambled 🔴'}`;
     const textB = `Fly B: ${flyB.is_real ? 'Biological 🟢' : 'Scrambled 🔴'}`;
-    ctx.fillText(`${textA}   •   ${textB}`, bx + 18, by + 42);
+    ctx.fillText(`${textA}   •   ${textB}`, bx + 16, by + 42);
+
+    ctx.font = '11px monospace';
+    ctx.fillStyle = '#3fb950';
+    const hashStr = lr.ctrl_hash ? lr.ctrl_hash : 'off-harness sealed';
+    const idStr = lr.ctrl_id !== undefined ? `#${lr.ctrl_id}` : '#0';
+    ctx.fillText(`🔒 Control Twin ${idStr} SHA-256: ${hashStr} (Authored-Elsewhere)`, bx + 16, by + 62);
     ctx.restore();
   }
 
