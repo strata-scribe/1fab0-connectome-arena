@@ -194,8 +194,24 @@ class ArenaEngine:
             "sum_ci_shuf": 0.0,
             "diffs": []
         }
+        self.sealed_controls = []
+        self.control_idx = 0
+        self.active_ctrl_hash = "uninitialized"
+        self.active_ctrl_id = -1
+        self.load_sealed_controls()
         self.load_ledger()
         self.spawn_trial()
+
+    def load_sealed_controls(self):
+        controls_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data", "sealed_controls.json"))
+        if os.path.exists(controls_path):
+            try:
+                with open(controls_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    self.sealed_controls = data.get("controls", [])
+                    print(f"[ENGINE] Loaded {len(self.sealed_controls)} off-harness sealed controls from {controls_path}")
+            except Exception as e:
+                print(f"[ENGINE] Warning: failed to load sealed controls: {e}")
 
     def load_ledger(self):
         if os.path.exists(self.ledger_file):
@@ -230,7 +246,20 @@ class ArenaEngine:
                 break
 
         shared_heading = random.uniform(0, 2 * math.pi)
-        W_ctrl = generate_shuffled_matrix(self.W_bio, 40)
+        
+        # AUTHORED-ELSEWHERE CUSTODY (c59011 / c59078):
+        # Harness consumes pre-generated, cryptographically sealed off-harness controls
+        if self.sealed_controls:
+            ctrl_obj = self.sealed_controls[self.control_idx % len(self.sealed_controls)]
+            self.control_idx += 1
+            W_ctrl = [row[:] for row in ctrl_obj["matrix"]]
+            self.active_ctrl_hash = ctrl_obj.get("sha256", "sealed")
+            self.active_ctrl_id = ctrl_obj.get("id", 0)
+        else:
+            W_ctrl = generate_shuffled_matrix(self.W_bio, 40)
+            self.active_ctrl_hash = "in_harness_fallback"
+            self.active_ctrl_id = -1
+
         assign_a_real = random.random() < 0.5
 
         self.flyA = FlyAgent(sx, sy, shared_heading, self.W_bio if assign_a_real else W_ctrl, assign_a_real, "Fly A")
@@ -412,7 +441,12 @@ class ArenaEngine:
                         "KC": 0.843,
                         "DN": 0.505
                     },
-                    "degree_invariance": "k_i = deg_G_traced(i)"
+                    "degree_invariance": "k_i = deg_G_traced(i)",
+                    "control_custody": {
+                        "rule": "authored-elsewhere (c59011/c59078)",
+                        "active_ctrl_id": self.active_ctrl_id,
+                        "active_ctrl_sha256": self.active_ctrl_hash[:16] + "..."
+                    }
                 },
                 "last_reveal": self.last_reveal,
                 "recent_history": list(reversed(self.stats.get("history", [])[-20:]))

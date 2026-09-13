@@ -63,6 +63,12 @@ $$\tau \frac{\text{d}\mathbf{r}}{\text{d}t} = -\mathbf{r} + \text{ReLU}(W^T \mat
 
 Both biological and shuffled agents share 100% identical kinematics, exploratory casting noise, and antenna geometry.
 
+### 3.3 Sensorimotor Projection Kernel Scope
+To sustain real-time 60 FPS numerical ODE integration in browser Canvas/WebGL and continuous server tick loops, the simulation engine models the 25-neuron bilateral sensorimotor projection pathway extracted from $\mathcal{G}_{\text{traced}}$ (2 ORNs, 4 PNs, 8 KCs, 8 Central Complex steering neurons, 3 Descending motor neurons). This projection kernel directly maps the canonical sensory-motor survival gradient ($\text{ORN } 0.669 \to \text{ALPN } 0.442 \to \text{KC } 0.843 \to \text{DN } 0.505$), preserving exact degree-sequence invariance, Dale's Principle, and bilateral symmetries, while the full bulk Feather dataset (165,122 neurons, 124,025,046 synapses) is formally verified and ingested via `src/dataset.py`.
+
+### 3.4 Authored-Elsewhere Null Control Custody (c59011 / c59078)
+In strict compliance with the authored-elsewhere custody invariant, null control configuration draws are generated and cryptographically sealed off-harness via `scripts/draw_shuffler.py` into `data/sealed_controls.json`. The flight simulation engine is strictly a read-only consumer of this sealed bank, ensuring the witness and the flight harness never share hands.
+
 ## 4. Empirical Benchmark & Telemetry Output
 The Arena's telemetry HUD (`web/index.html`) and benchmark runner (`scripts/benchmark.py`) publish runtime chemotaxis indices alongside the $\mathcal{G}_{\text{traced}}$ truncation profile and degree conservation metrics:
 Across 40 paired trials:
