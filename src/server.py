@@ -109,6 +109,7 @@ class FlyAgent:
         self.dt = 0.015
         self.wander_phase = random.uniform(0, 10)
         self.history = []
+        self.full_trajectory = [[round(self.x, 1), round(self.y, 1)]]
         self.min_dist = 9999.0
         self.last_yaw = 0.0
 
@@ -167,6 +168,7 @@ class FlyAgent:
         self.history.append([round(self.x, 1), round(self.y, 1)])
         if len(self.history) > 220:
             self.history.pop(0)
+        self.full_trajectory.append([round(self.x, 1), round(self.y, 1)])
 
         dist = math.hypot(self.x - target_x, self.y - target_y)
         if dist < self.min_dist:
@@ -346,10 +348,13 @@ class ArenaEngine:
             "ctrl_hash": self.active_ctrl_hash[:16] + "...",
             "rolling_t": t_stat_val,
             "p_str": p_str,
-            "steps": self.step_count
+            "steps": self.step_count,
+            "target": [round(self.target["x"], 1), round(self.target["y"], 1)],
+            "trajectory_a": self.flyA.full_trajectory,
+            "trajectory_b": self.flyB.full_trajectory
         }
         self.stats.setdefault("history", []).append(record)
-        if len(self.stats["history"]) > 300:
+        if len(self.stats["history"]) > 100:
             self.stats["history"].pop(0)
         self.save_ledger()
 
@@ -455,7 +460,10 @@ class ArenaEngine:
                     }
                 },
                 "last_reveal": self.last_reveal,
-                "recent_history": list(reversed(self.stats.get("history", [])[-20:]))
+                "recent_history": [
+                    {k: v for k, v in item.items() if k not in ("trajectory_a", "trajectory_b")}
+                    for item in reversed(self.stats.get("history", [])[-20:])
+                ]
             }
 
     def reset_stats(self):
@@ -517,16 +525,30 @@ class ArenaHTTPHandler(BaseHTTPRequestHandler):
             self.wfile.write(history_data)
             return
 
-        # Serve static html
+        # Serve static files from web_dir
         web_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "web"))
-        file_path = os.path.join(web_dir, "index.html")
-        if not os.path.exists(file_path):
-            file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "1fab0_interactive_demo.html")
-        if os.path.exists(file_path):
+        req_path = parsed.path.lstrip("/")
+        if not req_path:
+            file_path = os.path.join(web_dir, "index.html")
+        else:
+            file_path = os.path.abspath(os.path.join(web_dir, req_path))
+
+        if not file_path.startswith(web_dir) or not os.path.exists(file_path):
+            file_path = os.path.join(web_dir, "index.html")
+
+        if os.path.exists(file_path) and os.path.isfile(file_path):
+            content_type = "text/html; charset=utf-8"
+            if file_path.endswith(".json"):
+                content_type = "application/json"
+            elif file_path.endswith(".js"):
+                content_type = "application/javascript"
+            elif file_path.endswith(".css"):
+                content_type = "text/css"
             with open(file_path, "rb") as f:
                 content = f.read()
             self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Type", content_type)
+            self.send_header("Access-Control-Allow-Origin", "*")
             self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
             self.end_headers()
             self.wfile.write(content)
