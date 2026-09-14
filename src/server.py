@@ -12,7 +12,7 @@ import math
 import json
 import random
 import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import HTTPServer, ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
 
 # Connectome Architecture Constants
@@ -222,6 +222,12 @@ class ArenaEngine:
                     data = json.load(f)
                     if isinstance(data, dict) and "total" in data:
                         self.stats.update(data)
+                        if "custody_draws" in data and isinstance(data["custody_draws"], int):
+                            self.control_idx = data["custody_draws"]
+                        else:
+                            hist = data.get("history", [])
+                            ctrl_count = sum(1 for h in hist if "ctrl_id" in h)
+                            self.control_idx = max(ctrl_count, 300)
             except Exception:
                 pass
 
@@ -319,6 +325,8 @@ class ArenaEngine:
                 elif t >= 2.0: p_str = "p < 0.05"
                 else: p_str = "n.s."
 
+        self.stats["custody_draws"] = self.control_idx
+        pool_sz = len(self.sealed_controls) if self.sealed_controls else 50
         self.last_reveal = {
             "trial_num": self.stats["total"],
             "winner_name": winner_name,
@@ -328,7 +336,9 @@ class ArenaEngine:
             "ci_a": round(ci_a, 2),
             "ci_b": round(ci_b, 2),
             "ctrl_id": self.active_ctrl_id,
-            "ctrl_hash": self.active_ctrl_hash[:16] + "..."
+            "ctrl_hash": self.active_ctrl_hash[:16] + "...",
+            "pool_size": pool_sz,
+            "custody_draws": self.control_idx
         }
 
         # Record chronological trial entry in ledger
@@ -346,6 +356,8 @@ class ArenaEngine:
             "ci_diff": round(ci_real - ci_shuf, 2),
             "ctrl_id": self.active_ctrl_id,
             "ctrl_hash": self.active_ctrl_hash[:16] + "...",
+            "pool_size": pool_sz,
+            "custody_draws": self.control_idx,
             "rolling_t": t_stat_val,
             "p_str": p_str,
             "steps": self.step_count,
@@ -456,7 +468,9 @@ class ArenaEngine:
                     "control_custody": {
                         "rule": "authored-elsewhere (c59011/c59078)",
                         "active_ctrl_id": self.active_ctrl_id,
-                        "active_ctrl_sha256": self.active_ctrl_hash[:16] + "..."
+                        "active_ctrl_sha256": self.active_ctrl_hash[:16] + "...",
+                        "pool_size": len(self.sealed_controls) if self.sealed_controls else 50,
+                        "custody_draws": self.stats.get("custody_draws", self.control_idx)
                     }
                 },
                 "last_reveal": self.last_reveal,
@@ -572,7 +586,7 @@ def main():
     sim_thread = threading.Thread(target=simulation_loop, daemon=True)
     sim_thread.start()
 
-    server = HTTPServer(("0.0.0.0", port), ArenaHTTPHandler)
+    server = ThreadingHTTPServer(("0.0.0.0", port), ArenaHTTPHandler)
     print(f"Authoritative Connectome Server live on http://0.0.0.0:{port}")
     try:
         server.serve_forever()

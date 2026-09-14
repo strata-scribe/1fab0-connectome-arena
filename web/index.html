@@ -307,6 +307,10 @@
         <div>Control Custody</div>
         <span class="val-bio" id="ctrl-custody-rule">Authored-Elsewhere</span>
       </div>
+      <div class="score-row">
+        <div>Custody Pool &amp; Draws</div>
+        <span style="color: #3fb950; font-size: 0.70rem; font-family: monospace;" id="ctrl-custody-stats">250 Sealed Twins</span>
+      </div>
       <div class="score-row" style="border-bottom: none;">
         <div>Active Twin SHA-256</div>
         <span style="color: #58a6ff; font-family: monospace; font-size: 0.70rem;" id="ctrl-hash-badge">Loading...</span>
@@ -557,15 +561,57 @@ async function resolveApiEndpoint() {
 resolveApiEndpoint();
 setInterval(resolveApiEndpoint, 15000);
 
+let isPolling = false;
+let lastSeenStep = -1;
+let lastSeenTrial = -1;
+let renderFlyA = { x: 400, y: 300, heading: 0 };
+let renderFlyB = { x: 400, y: 300, heading: 0 };
+let renderInitialized = false;
+let lastAppliedTrial = -1;
+
 async function pollServer() {
+  if (isPolling) return;
+  if (currentMode === 'replay') {
+    setTimeout(pollServer, 1000);
+    return;
+  }
+  isPolling = true;
   try {
     const targetUrl = (apiEndpoint ? apiEndpoint : '') + '/api/state';
     const res = await fetch(targetUrl, { cache: 'no-store' });
     if (res.ok) {
-      serverState = await res.json();
-      updateUI(serverState);
+      const data = await res.json();
+      const trial = (data.stats && data.stats.total) || 0;
+      // Guard against out-of-order stale network packets
+      if (trial > lastSeenTrial || (trial === lastSeenTrial && data.step_count >= lastSeenStep)) {
+        lastSeenTrial = trial;
+        lastSeenStep = data.step_count;
+        onServerStateReceived(data);
+      }
     }
-  } catch (e) {}
+  } catch (e) {
+  } finally {
+    isPolling = false;
+    // Self-pacing: Next request is scheduled 45ms AFTER previous one finished
+    setTimeout(pollServer, 45);
+  }
+}
+
+function onServerStateReceived(data) {
+  serverState = data;
+  const trial = (data.stats && data.stats.total) || 0;
+  if (!renderInitialized || trial !== lastAppliedTrial || data.step_count <= 2) {
+    // Snap to exact start positions at flight inception or first load
+    renderFlyA.x = data.flyA.x;
+    renderFlyA.y = data.flyA.y;
+    renderFlyA.heading = data.flyA.heading;
+    renderFlyB.x = data.flyB.x;
+    renderFlyB.y = data.flyB.y;
+    renderFlyB.heading = data.flyB.heading;
+    renderInitialized = true;
+    lastAppliedTrial = trial;
+  }
+  updateUI(data);
 }
 
 async function fetchHistory() {
@@ -583,9 +629,13 @@ async function fetchHistory() {
 setInterval(fetchHistory, 5000);
 fetchHistory();
 
+let lastHistoryRenderTrial = -1;
+let lastHistoryRenderTime = 0;
+
 function updateUI(state) {
   if (!state || !state.stats) return;
 
+  // 1. Fast scalar telemetry updates
   document.getElementById('total-trials').innerText = state.stats.total;
   document.getElementById('wins-real').innerText = state.stats.real_wins;
   document.getElementById('wins-shuf').innerText = state.stats.shuf_wins;
@@ -609,30 +659,50 @@ function updateUI(state) {
     document.getElementById('t-stat').innerText = 'Calibrating...';
   }
 
+  // 2. Control Custody Telemetry
   if (state.truncation_profile && state.truncation_profile.control_custody) {
     const cc = state.truncation_profile.control_custody;
     const ruleEl = document.getElementById('ctrl-custody-rule');
-    if (ruleEl) ruleEl.innerText = `Authored-Elsewhere (#${cc.active_ctrl_id})`;
+    const poolText = cc.pool_size ? ` of ${cc.pool_size}` : '';
+    if (ruleEl) ruleEl.innerText = `Authored-Elsewhere (Twin #${cc.active_ctrl_id}${poolText})`;
     const hashEl = document.getElementById('ctrl-hash-badge');
     if (hashEl) hashEl.innerText = cc.active_ctrl_sha256;
+    const statsEl = document.getElementById('ctrl-custody-stats');
+    if (statsEl) {
+      const draws = cc.custody_draws || state.stats.total;
+      statsEl.innerText = `${cc.pool_size || 250} Twins Sealed · ${draws.toLocaleString()} Draws`;
+    }
   }
 
+  // 3. Unblinded finish card
   const cardUnblinded = document.getElementById('card-unblinded');
   if (state.last_reveal) {
     cardUnblinded.style.display = 'block';
     const lr = state.last_reveal;
     const winnerLabel = lr.winner_type === 'real' ? 'Biological Brain' : (lr.winner_type === 'shuf' ? 'Scrambled Control' : 'Timeout');
     document.getElementById('unblind-title').innerText = `Flight #${lr.trial_num} Finished — ${lr.winner_name} won (${winnerLabel})`;
+    const poolText = lr.pool_size ? ` of ${lr.pool_size}` : '';
+    const drawsText = lr.custody_draws ? ` · ${lr.custody_draws.toLocaleString()} Draws` : '';
     document.getElementById('unblind-detail').innerHTML = `
       <div><strong>Fly A</strong>: ${lr.flyA_real ? '<span style="color:#3fb950; font-weight:600;">Biological Brain 🟢</span>' : '<span style="color:#f85149; font-weight:600;">Scrambled Control 🔴</span>'} (Efficiency: ${lr.ci_a.toFixed(2)})</div>
       <div><strong>Fly B</strong>: ${lr.flyB_real ? '<span style="color:#3fb950; font-weight:600;">Biological Brain 🟢</span>' : '<span style="color:#f85149; font-weight:600;">Scrambled Control 🔴</span>'} (Efficiency: ${lr.ci_b.toFixed(2)})</div>
       <div style="margin-top:5px; padding-top:4px; border-top:1px dashed #21262d; font-size:0.72rem; color:#8b949e;">
-        🔒 Sealed Twin: <span style="font-family:monospace; color:#58a6ff;">#${lr.ctrl_id !== undefined ? lr.ctrl_id : '0'} (${lr.ctrl_hash || 'off-harness'})</span>
+        🔒 Sealed Twin: <span style="font-family:monospace; color:#58a6ff;">#${lr.ctrl_id !== undefined ? lr.ctrl_id : '0'}${poolText} (${lr.ctrl_hash || 'off-harness'}${drawsText})</span>
       </div>
     `;
   }
 
-  // Render recent historical timeline with interactive replay hooks
+  // 4. Heavy DOM history updates throttled: run only on trial finish or max once every 2s
+  const now = Date.now();
+  const curTrial = state.stats.total;
+  if (curTrial !== lastHistoryRenderTrial || (now - lastHistoryRenderTime > 2000)) {
+    lastHistoryRenderTrial = curTrial;
+    lastHistoryRenderTime = now;
+    renderHistoryCards(state);
+  }
+}
+
+function renderHistoryCards(state) {
   const histContainer = document.getElementById('history-container');
   if (histContainer && state.recent_history && state.recent_history.length > 0) {
     histContainer.innerHTML = state.recent_history.map(item => {
@@ -894,11 +964,11 @@ function renderReplay() {
 
   ctx.font = '10.5px monospace';
   ctx.fillStyle = '#3fb950';
-  ctx.fillText(`🔒 Control Twin #${activeReplay.ctrl_id !== undefined ? activeReplay.ctrl_id : '0'} SHA-256: ${activeReplay.ctrl_hash || 'off-harness'} (Authored-Elsewhere)`, bx + 14, by + 54);
+  const rPoolText = activeReplay.pool_size ? ` of ${activeReplay.pool_size}` : '';
+  ctx.fillText(`🔒 Control Twin #${activeReplay.ctrl_id !== undefined ? activeReplay.ctrl_id : '0'}${rPoolText} SHA-256: ${activeReplay.ctrl_hash || 'off-harness'} (Authored-Elsewhere)`, bx + 14, by + 54);
   ctx.restore();
 }
 
-setInterval(pollServer, 33);
 pollServer();
 
 function render(timestamp) {
@@ -937,6 +1007,25 @@ function render(timestamp) {
     ctx.fillText('Connecting to live arena simulation...', 260, 290);
     requestAnimationFrame(render);
     return;
+  }
+
+  // Smooth client-side interpolation towards authoritative server physics
+  if (renderInitialized && serverState.flyA && serverState.flyB) {
+    const lerpRate = 0.35;
+    renderFlyA.x += (serverState.flyA.x - renderFlyA.x) * lerpRate;
+    renderFlyA.y += (serverState.flyA.y - renderFlyA.y) * lerpRate;
+    renderFlyB.x += (serverState.flyB.x - renderFlyB.x) * lerpRate;
+    renderFlyB.y += (serverState.flyB.y - renderFlyB.y) * lerpRate;
+
+    let da = serverState.flyA.heading - renderFlyA.heading;
+    while (da < -Math.PI) da += Math.PI * 2;
+    while (da > Math.PI) da -= Math.PI * 2;
+    renderFlyA.heading += da * lerpRate;
+
+    let db = serverState.flyB.heading - renderFlyB.heading;
+    while (db < -Math.PI) db += Math.PI * 2;
+    while (db > Math.PI) db -= Math.PI * 2;
+    renderFlyB.heading += db * lerpRate;
   }
 
   const target = serverState.target;
@@ -990,8 +1079,8 @@ function render(timestamp) {
   const isWinnerA = lr && lr.winner_name === 'Fly A';
   const isWinnerB = lr && lr.winner_name === 'Fly B';
 
-  drawFly(flyA, colorA, labelA, isWinnerA);
-  drawFly(flyB, colorB, labelB, isWinnerB);
+  drawFly(renderFlyA, colorA, labelA, isWinnerA);
+  drawFly(renderFlyB, colorB, labelB, isWinnerB);
 
   // Clean finish notification on canvas
   if (isRevealing && lr) {
@@ -1019,8 +1108,9 @@ function render(timestamp) {
     ctx.font = '11px monospace';
     ctx.fillStyle = '#3fb950';
     const hashStr = lr.ctrl_hash ? lr.ctrl_hash : 'off-harness sealed';
+    const poolText = lr.pool_size ? ` of ${lr.pool_size}` : '';
     const idStr = lr.ctrl_id !== undefined ? `#${lr.ctrl_id}` : '#0';
-    ctx.fillText(`🔒 Control Twin ${idStr} SHA-256: ${hashStr} (Authored-Elsewhere)`, bx + 16, by + 62);
+    ctx.fillText(`🔒 Control Twin ${idStr}${poolText} SHA-256: ${hashStr} (Authored-Elsewhere · Flight #${lr.trial_num})`, bx + 16, by + 62);
     ctx.restore();
   }
 
