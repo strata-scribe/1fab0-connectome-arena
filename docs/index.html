@@ -133,6 +133,17 @@
 
 <div class="layout">
   <div id="arena-container">
+    <!-- Workstation Host Bypass Banner -->
+    <div id="workstation-banner" style="display: none; width: 100%; max-width: 800px; background: #0d1926; border: 1px solid #388bfd; border-radius: 6px; padding: 7px 12px; margin-bottom: 8px; justify-content: space-between; align-items: center; font-size: 0.76rem; box-sizing: border-box;">
+      <span style="color: #c9d1d9;">
+        🖥️ <strong>Host Workstation Detected</strong> · Bypass download saturation / bufferbloat:
+      </span>
+      <div style="display: flex; gap: 8px; align-items: center;">
+        <button id="btn-use-local" class="ctrl-btn sm" onclick="setEndpointMode('local')" style="background: #238636; color: white;">Connect Direct (0ms Latency)</button>
+        <a href="http://localhost:8086" target="_blank" class="ctrl-btn sm" style="text-decoration: none; color: #58a6ff;">Open Local App ↗</a>
+      </div>
+    </div>
+
     <!-- Top Mode Switcher Bar -->
     <div style="display: flex; gap: 8px; align-items: center; width: 100%; max-width: 800px; justify-content: space-between; margin-bottom: 6px;">
       <div style="display: flex; gap: 6px;">
@@ -528,17 +539,83 @@ function setSpeed(spd) {
   if (spd === 2.0) document.getElementById('spd-20').classList.add('active');
 }
 
-function selectReplayFlight(trialNum) {
-  const found = replayTrials.find(t => t.trial_num === trialNum);
+async function selectReplayFlight(trialNum) {
+  let found = replayTrials.find(t => t.trial_num === trialNum);
+  if (found && (!found.trajectory_a || found.trajectory_a.length === 0)) {
+    // Fetch full flight trajectory on-demand for older flights
+    try {
+      const res = await fetch((apiEndpoint ? apiEndpoint : '') + '/api/replay?trial=' + trialNum);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.ok && json.trial) {
+          found = json.trial;
+          const idx = replayTrials.findIndex(t => t.trial_num === trialNum);
+          if (idx !== -1) replayTrials[idx] = found;
+          else replayTrials.unshift(found);
+        }
+      }
+    } catch (e) {}
+  }
   if (found) {
     switchMode('replay');
     setReplayTrial(found, true);
   }
 }
 
-async function resolveApiEndpoint() {
+let currentEndpointMode = localStorage.getItem('arena_endpoint_mode') || 'auto';
+
+async function setEndpointMode(mode) {
+  currentEndpointMode = mode;
+  localStorage.setItem('arena_endpoint_mode', mode);
+  const banner = document.getElementById('workstation-banner');
+  if (mode === 'local') {
+    apiEndpoint = 'http://127.0.0.1:8086';
+    if (banner) {
+      banner.innerHTML = `
+        <span style="color:#3fb950;">⚡ <strong>Direct Local Daemon Connected (127.0.0.1:8086 · 0ms latency)</strong></span>
+        <button class="ctrl-btn sm" onclick="setEndpointMode('auto')">Switch to Cloudflare Tunnel</button>
+      `;
+    }
+  } else {
+    await resolveApiEndpoint();
+    if (banner) {
+      banner.innerHTML = `
+        <span style="color: #c9d1d9;">🖥️ <strong>Host Workstation Detected</strong> · Bypass download saturation / bufferbloat:</span>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <button class="ctrl-btn sm" onclick="setEndpointMode('local')" style="background: #238636; color: white;">Connect Direct (0ms Latency)</button>
+          <a href="http://localhost:8086" target="_blank" class="ctrl-btn sm" style="text-decoration: none; color: #58a6ff;">Open Local App ↗</a>
+        </div>
+      `;
+    }
+  }
+  initStream();
+}
+
+async function probeWorkstationHost() {
   if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-    apiEndpoint = '';
+    return; // Already on localhost
+  }
+  try {
+    const res = await fetch('http://127.0.0.1:8086/api/state', { mode: 'cors', cache: 'no-store' });
+    if (res.ok) {
+      const banner = document.getElementById('workstation-banner');
+      if (banner) banner.style.display = 'flex';
+      if (currentEndpointMode === 'local') {
+        setEndpointMode('local');
+      }
+    }
+  } catch (e) {
+    // If mixed-content policy warns or blocks cross-origin fetch, still show direct localhost link
+    const banner = document.getElementById('workstation-banner');
+    if (banner) banner.style.display = 'flex';
+  }
+}
+probeWorkstationHost();
+
+async function resolveApiEndpoint() {
+  if (currentEndpointMode === 'local' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    apiEndpoint = (currentEndpointMode === 'local' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') ? 'http://127.0.0.1:8086' : '';
+    initStream();
     return;
   }
   const candidatePaths = [
@@ -554,29 +631,87 @@ async function resolveApiEndpoint() {
         const data = await res.json();
         if (data && data.endpoint && data.active) {
           apiEndpoint = data.endpoint.replace(/\/+$/, '');
-          const tag = document.querySelector('.status-tag');
-          if (tag) {
-            tag.innerHTML = `<a href="${apiEndpoint}" target="_blank" style="color:#3fb950; text-decoration:none;">🟢 Live Stream (${apiEndpoint.replace('https://', '')})</a>`;
-          }
           break;
         }
       }
     } catch (e) {}
   }
+  initStream();
 }
 resolveApiEndpoint();
-setInterval(resolveApiEndpoint, 15000);
+setInterval(resolveApiEndpoint, 30000);
 
+let eventSource = null;
+let sseActive = false;
 let isPolling = false;
 let lastSeenStep = -1;
 let lastSeenTrial = -1;
+let lastHistoryTrial = -1;
+let lastPacketTime = performance.now();
+let lastRenderTime = performance.now();
+
+let clientTrailA = [];
+let clientTrailB = [];
 let renderFlyA = { x: 400, y: 300, heading: 0 };
 let renderFlyB = { x: 400, y: 300, heading: 0 };
 let renderInitialized = false;
 let lastAppliedTrial = -1;
 
+function updateStatusTag(streamType) {
+  const tag = document.querySelector('.status-tag');
+  if (tag) {
+    const epClean = apiEndpoint ? apiEndpoint.replace('https://', '').replace('http://', '') : 'localhost';
+    tag.innerHTML = `<span style="color:#3fb950; font-weight:600;">● ${streamType} (${epClean})</span>`;
+  }
+}
+
+function initStream() {
+  if (eventSource) {
+    eventSource.close();
+    eventSource = null;
+  }
+  sseActive = false;
+
+  if (window.EventSource) {
+    const streamUrl = (apiEndpoint ? apiEndpoint : '') + '/api/stream';
+    try {
+      eventSource = new EventSource(streamUrl);
+      eventSource.onopen = () => {
+        sseActive = true;
+        updateStatusTag('SSE 30Hz');
+      };
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          handleServerPacket(data);
+        } catch (e) {}
+      };
+      eventSource.onerror = () => {
+        sseActive = false;
+        updateStatusTag('Polling Stream');
+        if (!isPolling) pollServer();
+      };
+    } catch (e) {
+      sseActive = false;
+      pollServer();
+    }
+  } else {
+    pollServer();
+  }
+}
+
+function handleServerPacket(data) {
+  lastPacketTime = performance.now();
+  const trial = (data.stats && data.stats.total) || 0;
+  if (trial > lastSeenTrial || (trial === lastSeenTrial && data.step_count >= lastSeenStep)) {
+    lastSeenTrial = trial;
+    lastSeenStep = data.step_count;
+    onServerStateReceived(data);
+  }
+}
+
 async function pollServer() {
-  if (isPolling) return;
+  if (isPolling || sseActive) return;
   if (currentMode === 'replay') {
     setTimeout(pollServer, 1000);
     return;
@@ -587,25 +722,29 @@ async function pollServer() {
     const res = await fetch(targetUrl, { cache: 'no-store' });
     if (res.ok) {
       const data = await res.json();
-      const trial = (data.stats && data.stats.total) || 0;
-      // Guard against out-of-order stale network packets
-      if (trial > lastSeenTrial || (trial === lastSeenTrial && data.step_count >= lastSeenStep)) {
-        lastSeenTrial = trial;
-        lastSeenStep = data.step_count;
-        onServerStateReceived(data);
-      }
+      handleServerPacket(data);
     }
   } catch (e) {
   } finally {
     isPolling = false;
-    // Self-pacing: Next request is scheduled 45ms AFTER previous one finished
-    setTimeout(pollServer, 45);
+    if (!sseActive) {
+      setTimeout(pollServer, 45);
+    }
   }
 }
 
 function onServerStateReceived(data) {
   serverState = data;
   const trial = (data.stats && data.stats.total) || 0;
+
+  // Decoupled history updates: fetch only when a flight completes
+  if (lastHistoryTrial !== -1 && trial > lastHistoryTrial) {
+    lastHistoryTrial = trial;
+    fetchHistory();
+  } else if (lastHistoryTrial === -1) {
+    lastHistoryTrial = trial;
+  }
+
   if (!renderInitialized || trial !== lastAppliedTrial || data.step_count <= 2) {
     // Snap to exact start positions at flight inception or first load
     renderFlyA.x = data.flyA.x;
@@ -616,6 +755,8 @@ function onServerStateReceived(data) {
     renderFlyB.heading = data.flyB.heading;
     renderInitialized = true;
     lastAppliedTrial = trial;
+    clientTrailA = [];
+    clientTrailB = [];
   }
   updateUI(data);
 }
@@ -632,7 +773,7 @@ async function fetchHistory() {
     }
   } catch (e) {}
 }
-setInterval(fetchHistory, 5000);
+setInterval(fetchHistory, 30000);
 fetchHistory();
 
 let lastHistoryRenderTrial = -1;
@@ -1016,12 +1157,32 @@ function render(timestamp) {
   }
 
   // Smooth client-side interpolation towards authoritative server physics
+  // Smooth client-side dead-reckoning towards authoritative server physics
   if (renderInitialized && serverState.flyA && serverState.flyB) {
-    const lerpRate = 0.35;
-    renderFlyA.x += (serverState.flyA.x - renderFlyA.x) * lerpRate;
-    renderFlyA.y += (serverState.flyA.y - renderFlyA.y) * lerpRate;
-    renderFlyB.x += (serverState.flyB.x - renderFlyB.x) * lerpRate;
-    renderFlyB.y += (serverState.flyB.y - renderFlyB.y) * lerpRate;
+    const dtMs = Math.min(100, timestamp - lastRenderTime);
+    lastRenderTime = timestamp;
+
+    let targetAx = serverState.flyA.x;
+    let targetAy = serverState.flyA.y;
+    let targetBx = serverState.flyB.x;
+    let targetBy = serverState.flyB.y;
+
+    // Extrapolate smoothly between packets if network packets are delayed by download saturation
+    const timeSincePacket = performance.now() - lastPacketTime;
+    if (!serverState.is_revealing && timeSincePacket > 35 && timeSincePacket < 1200) {
+      const extraTicks = (timeSincePacket - 35) / 33.3;
+      const fwd = Math.min(25, extraTicks * 2.2);
+      targetAx += Math.cos(serverState.flyA.heading) * fwd;
+      targetAy += Math.sin(serverState.flyA.heading) * fwd;
+      targetBx += Math.cos(serverState.flyB.heading) * fwd;
+      targetBy += Math.sin(serverState.flyB.heading) * fwd;
+    }
+
+    const lerpRate = Math.min(1.0, 0.35 * (dtMs / 16.6));
+    renderFlyA.x += (targetAx - renderFlyA.x) * lerpRate;
+    renderFlyA.y += (targetAy - renderFlyA.y) * lerpRate;
+    renderFlyB.x += (targetBx - renderFlyB.x) * lerpRate;
+    renderFlyB.y += (targetBy - renderFlyB.y) * lerpRate;
 
     let da = serverState.flyA.heading - renderFlyA.heading;
     while (da < -Math.PI) da += Math.PI * 2;
@@ -1032,6 +1193,20 @@ function render(timestamp) {
     while (db < -Math.PI) db += Math.PI * 2;
     while (db > Math.PI) db -= Math.PI * 2;
     renderFlyB.heading += db * lerpRate;
+
+    // Maintain client-side trail buffer for 60 FPS visual smoothness
+    if (serverState.step_count > 0) {
+      const lastA = clientTrailA[clientTrailA.length - 1];
+      if (!lastA || Math.hypot(renderFlyA.x - lastA[0], renderFlyA.y - lastA[1]) > 2.0) {
+        clientTrailA.push([Math.round(renderFlyA.x * 10) / 10, Math.round(renderFlyA.y * 10) / 10]);
+        if (clientTrailA.length > 180) clientTrailA.shift();
+      }
+      const lastB = clientTrailB[clientTrailB.length - 1];
+      if (!lastB || Math.hypot(renderFlyB.x - lastB[0], renderFlyB.y - lastB[1]) > 2.0) {
+        clientTrailB.push([Math.round(renderFlyB.x * 10) / 10, Math.round(renderFlyB.y * 10) / 10]);
+        if (clientTrailB.length > 180) clientTrailB.shift();
+      }
+    }
   }
 
   const target = serverState.target;
@@ -1077,8 +1252,10 @@ function render(timestamp) {
   const trailA = isRevealing ? (flyA.is_real ? 'rgba(63, 185, 80, 0.6)' : 'rgba(248, 81, 73, 0.6)') : 'rgba(139, 148, 158, 0.35)';
   const trailB = isRevealing ? (flyB.is_real ? 'rgba(63, 185, 80, 0.6)' : 'rgba(248, 81, 73, 0.6)') : 'rgba(139, 148, 158, 0.35)';
 
-  drawTrail(flyA.history, trailA);
-  drawTrail(flyB.history, trailB);
+  const activeTrailA = clientTrailA.length > 2 ? clientTrailA : (flyA.history || []);
+  const activeTrailB = clientTrailB.length > 2 ? clientTrailB : (flyB.history || []);
+  drawTrail(activeTrailA, trailA);
+  drawTrail(activeTrailB, trailB);
 
   const labelA = isRevealing ? `Fly A: ${flyA.is_real ? 'Biological' : 'Scrambled'}` : 'Fly A';
   const labelB = isRevealing ? `Fly B: ${flyB.is_real ? 'Biological' : 'Scrambled'}` : 'Fly B';

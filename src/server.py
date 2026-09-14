@@ -11,9 +11,10 @@ import time
 import math
 import json
 import random
+import socket
 import threading
 from http.server import HTTPServer, ThreadingHTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 # Connectome Architecture Constants
 NUM_NEURONS = 25
@@ -366,7 +367,12 @@ class ArenaEngine:
             "trajectory_b": self.flyB.full_trajectory
         }
         self.stats.setdefault("history", []).append(record)
-        if len(self.stats["history"]) > 100:
+        # Prune heavy trajectories on older flights (keep full trajectories for newest 12 flights only)
+        if len(self.stats["history"]) > 12:
+            for old_rec in self.stats["history"][:-12]:
+                old_rec.pop("trajectory_a", None)
+                old_rec.pop("trajectory_b", None)
+        if len(self.stats["history"]) > 50:
             self.stats["history"].pop(0)
         self.save_ledger()
 
@@ -392,7 +398,7 @@ class ArenaEngine:
             elif self.step_count > 950:
                 self.finish_trial("timeout")
 
-    def get_state(self):
+    def get_state(self, lightweight=False):
         with self.lock:
             diffs = self.stats.get("diffs", [])
             n = len(diffs)
@@ -417,7 +423,11 @@ class ArenaEngine:
             cur_d_b = math.hypot(self.flyB.x - self.target["x"], self.flyB.y - self.target["y"])
 
             total = self.stats["total"]
-            return {
+            # Slice trail history to recent 45 points (~1.5s visual trail) to eliminate wire bloat
+            trail_a = self.flyA.history[-45:] if len(self.flyA.history) > 45 else self.flyA.history
+            trail_b = self.flyB.history[-45:] if len(self.flyB.history) > 45 else self.flyB.history
+
+            state = {
                 "target": {"x": round(self.target["x"], 1), "y": round(self.target["y"], 1), "r": self.target["r"]},
                 "is_revealing": self.is_revealing,
                 "step_count": self.step_count,
@@ -429,7 +439,7 @@ class ArenaEngine:
                     "last_yaw": round(self.flyA.last_yaw, 4),
                     "dist": round(cur_d_a, 1),
                     "ci": round(max(0.0, (d0_a - cur_d_a) / max(1.0, d0_a)), 2),
-                    "history": self.flyA.history,
+                    "history": trail_a,
                     "is_real": self.flyA.is_real if self.is_revealing else None
                 },
                 "flyB": {
@@ -439,7 +449,7 @@ class ArenaEngine:
                     "last_yaw": round(self.flyB.last_yaw, 4),
                     "dist": round(cur_d_b, 1),
                     "ci": round(max(0.0, (d0_b - cur_d_b) / max(1.0, d0_b)), 2),
-                    "history": self.flyB.history,
+                    "history": trail_b,
                     "is_real": self.flyB.is_real if self.is_revealing else None
                 },
                 "stats": {
@@ -458,13 +468,6 @@ class ArenaEngine:
                     "named_graph": "G_traced = (V_traced, E_traced ∩ (V_traced × V_traced))",
                     "subset_seal": "e35da783d1c686b2b58b3b87cd6a403ae43bfcfba8bff28e08ef752c1a56afc1",
                     "ballot_anchor": "Proposal #21 (ompi: 9dc2bbd2...)",
-                    "survival_gradient": {
-                        "ORN": 0.669,
-                        "ALPN": 0.442,
-                        "KC": 0.843,
-                        "DN": 0.505
-                    },
-                    "degree_invariance": "k_i = deg_G_traced(i)",
                     "control_custody": {
                         "rule": "authored-elsewhere (c59011/c59078)",
                         "active_ctrl_id": self.active_ctrl_id,
@@ -473,12 +476,14 @@ class ArenaEngine:
                         "custody_draws": self.stats.get("custody_draws", self.control_idx)
                     }
                 },
-                "last_reveal": self.last_reveal,
-                "recent_history": [
-                    {k: v for k, v in item.items() if k not in ("trajectory_a", "trajectory_b")}
-                    for item in reversed(self.stats.get("history", [])[-20:])
-                ]
+                "last_reveal": self.last_reveal
             }
+            if not lightweight:
+                state["recent_history"] = [
+                    {k: v for k, v in item.items() if k not in ("trajectory_a", "trajectory_b")}
+                    for item in reversed(self.stats.get("history", [])[-8:])
+                ]
+            return state
 
     def reset_stats(self):
         with self.lock:
@@ -516,8 +521,30 @@ class ArenaHTTPHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         parsed = urlparse(self.path)
+        if parsed.path == "/api/stream":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache, no-transform")
+            self.send_header("Connection", "keep-alive")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("X-Accel-Buffering", "no")
+            self.end_headers()
+            last_step = -1
+            try:
+                while True:
+                    state = engine.get_state(lightweight=True)
+                    step = state["step_count"]
+                    if step != last_step or state["is_revealing"]:
+                        last_step = step
+                        data = json.dumps(state, separators=(',', ':'))
+                        self.wfile.write(f"data: {data}\n\n".encode("utf-8"))
+                        self.wfile.flush()
+                    time.sleep(0.033)
+            except (BrokenPipeError, ConnectionResetError, socket.error, OSError):
+                return
+
         if parsed.path == "/api/state":
-            data = json.dumps(engine.get_state()).encode("utf-8")
+            data = json.dumps(engine.get_state(), separators=(',', ':')).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Access-Control-Allow-Origin", "*")
@@ -527,16 +554,52 @@ class ArenaHTTPHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/history":
-            history_data = json.dumps({
-                "total": engine.stats["total"],
-                "history": list(reversed(engine.stats.get("history", [])))
-            }, indent=2).encode("utf-8")
+            with engine.lock:
+                raw_hist = list(reversed(engine.stats.get("history", [])))
+                # Keep full trajectories only for the 8 newest records to prevent wire bloat
+                filtered_hist = []
+                for idx, item in enumerate(raw_hist[:30]):
+                    if idx < 8 and "trajectory_a" in item:
+                        filtered_hist.append(item)
+                    else:
+                        filtered_hist.append({k: v for k, v in item.items() if k not in ("trajectory_a", "trajectory_b")})
+                res_obj = {
+                    "total": engine.stats["total"],
+                    "history": filtered_hist
+                }
+            history_data = json.dumps(res_obj, separators=(',', ':')).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Access-Control-Allow-Origin", "*")
             self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
             self.end_headers()
             self.wfile.write(history_data)
+            return
+
+        if parsed.path == "/api/replay":
+            qs = parse_qs(parsed.query)
+            trial_str = qs.get("trial", [None])[0]
+            record = None
+            if trial_str:
+                try:
+                    t_num = int(trial_str)
+                    with engine.lock:
+                        for h in engine.stats.get("history", []):
+                            if h.get("trial_num") == t_num:
+                                record = h
+                                break
+                except Exception:
+                    pass
+            if record:
+                data = json.dumps({"ok": True, "trial": record}, separators=(',', ':')).encode("utf-8")
+                self.send_response(200)
+            else:
+                data = json.dumps({"ok": False, "error": "Flight record not found"}).encode("utf-8")
+                self.send_response(404)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(data)
             return
 
         # Serve static files from web_dir
