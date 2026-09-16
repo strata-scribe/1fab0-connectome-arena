@@ -40,12 +40,21 @@ def run_arm2_paired_trial(W_bio, W_rand, start_pos=None, start_heading=None):
     sim_real = FlightSimulation(W_bio,  pos=start_pos.copy(), heading=start_heading, is_real=True,  label="Biological")
     sim_rand = FlightSimulation(W_rand, pos=start_pos.copy(), heading=start_heading, is_real=False, label="Rand-Dyn")
 
+    steps_real = 0
+    rate_acc_real = np.zeros(sim_real.num_neurons, dtype=np.float64)
     for _ in range(MAX_STEPS):
         d = sim_real.step()
+        rate_acc_real += sim_real.rates
+        steps_real += 1
         if d < 3.0:
             break
+
+    steps_rand = 0
+    rate_acc_rand = np.zeros(sim_rand.num_neurons, dtype=np.float64)
     for _ in range(MAX_STEPS):
         d = sim_rand.step()
+        rate_acc_rand += sim_rand.rates
+        steps_rand += 1
         if d < 3.0:
             break
 
@@ -57,6 +66,11 @@ def run_arm2_paired_trial(W_bio, W_rand, start_pos=None, start_heading=None):
         "ci_rand": ci_rand,
         "ci_diff": ci_real - ci_rand,
         "real_won": ci_real > ci_rand,
+        # Mean population firing rate across all neurons and all timesteps (Hz proxy)
+        "mean_pop_rate_real": float(np.mean(rate_acc_real) / steps_real),
+        "mean_pop_rate_rand": float(np.mean(rate_acc_rand) / steps_rand),
+        # Fraction of neurons that were effectively silent (mean rate < 0.5 Hz)
+        "silent_frac_rand": float(np.mean((rate_acc_rand / steps_rand) < 0.5)),
     }
 
 
@@ -78,6 +92,9 @@ def run_arm2_benchmark():
 
     real_scores = []
     rand_scores = []
+    rate_real_scores = []
+    rate_rand_scores = []
+    silent_frac_scores = []
 
     for trial_i in range(NUM_TRIALS):
         # Fresh randomised-dynamics control for each trial (same sign-graph, new magnitudes)
@@ -85,6 +102,9 @@ def run_arm2_benchmark():
         result = run_arm2_paired_trial(W_bio, W_rand)
         real_scores.append(result["ci_real"])
         rand_scores.append(result["ci_rand"])
+        rate_real_scores.append(result["mean_pop_rate_real"])
+        rate_rand_scores.append(result["mean_pop_rate_rand"])
+        silent_frac_scores.append(result["silent_frac_rand"])
 
     real_scores = np.array(real_scores, dtype=np.float64)
     rand_scores = np.array(rand_scores, dtype=np.float64)
@@ -109,6 +129,9 @@ def run_arm2_benchmark():
         "t_stat": t_stat,
         "passed": passed,
         "verify_report": verify_report,
+        "mean_pop_rate_real": float(np.mean(rate_real_scores)),
+        "mean_pop_rate_rand": float(np.mean(rate_rand_scores)),
+        "mean_silent_frac_rand": float(np.mean(silent_frac_scores)),
     }
 
 
@@ -133,6 +156,11 @@ def main():
     print(f"Net Chemotaxis Advantage:   +{res['mean_diff']:.3f}")
     print(f"Std of paired differences:  {res['std_diff']:.3f}")
     print(f"Paired Student's t:         {res['t_stat']:.2f}")
+    print()
+    print(f"Population Activity (mean firing rate, Hz proxy):")
+    print(f"  Biological arm:           {res['mean_pop_rate_real']:.3f}")
+    print(f"  Rand-dynamics arm:        {res['mean_pop_rate_rand']:.3f}")
+    print(f"  Silent neurons (rand, <0.5 Hz): {res['mean_silent_frac_rand']*100:.1f}%")
     print()
     if res['passed']:
         print("Status:  PASSED — Biological wiring outperforms randomised dynamics")
