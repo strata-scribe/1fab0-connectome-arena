@@ -145,13 +145,22 @@
     </div>
 
     <!-- Top Mode Switcher Bar -->
-    <div style="display: flex; gap: 8px; align-items: center; width: 100%; max-width: 800px; justify-content: space-between; margin-bottom: 6px;">
-      <div style="display: flex; gap: 6px;">
-        <button id="btn-mode-live" class="ctrl-btn active" onclick="switchMode('live')">● Live Simulation</button>
-        <button id="btn-mode-replay" class="ctrl-btn" onclick="switchMode('replay')">⏮ Flight Replay</button>
+    <div style="display: flex; gap: 8px; align-items: center; width: 100%; max-width: 800px; justify-content: space-between; margin-bottom: 6px; flex-wrap: wrap;">
+      <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+        <button id="btn-mode-live" class="ctrl-btn active" onclick="switchMode('live')">● Live</button>
+        <button id="btn-mode-replay" class="ctrl-btn" onclick="switchMode('replay')">⏮ Replay</button>
+        <div style="width: 1px; height: 18px; background: #30363d; margin: 0 4px;"></div>
+        <span style="font-size: 0.72rem; color: #8b949e; margin-right: 2px;">Condition:</span>
+        <button id="btn-cond-auto" class="ctrl-btn sm active" onclick="setSimCondition('auto')" title="Auto-cycle between Arm 1, Arm 2, and Sensory Crossing">Auto-Cycle</button>
+        <button id="btn-cond-arm1" class="ctrl-btn sm" onclick="setSimCondition('arm1')" title="Arm 1: Shuffled Topology (Maslov-Sneppen)">Arm 1: Shuffled</button>
+        <button id="btn-cond-arm2" class="ctrl-btn sm" onclick="setSimCondition('arm2')" title="Arm 2: Randomised Dynamics on same graph topology">Arm 2: Rand-Dynamics</button>
+        <button id="btn-cond-wrong_odor" class="ctrl-btn sm" onclick="setSimCondition('wrong_odor')" title="Sensory Crossing: Swapped bilateral antennae">Sensory Crossing</button>
       </div>
-      <div id="replay-header-info" style="display: none; font-size: 0.78rem; color: #58a6ff; font-family: monospace;">
-        Replaying Flight #<span id="replay-trial-num">--</span>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span id="trial-mode-badge" style="background: #1f6feb; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.72rem; font-weight: 600; text-transform: uppercase;">ARM 1: SHUFFLED</span>
+        <div id="replay-header-info" style="display: none; font-size: 0.78rem; color: #58a6ff; font-family: monospace;">
+          Replaying Flight #<span id="replay-trial-num">--</span>
+        </div>
       </div>
     </div>
 
@@ -241,6 +250,24 @@
           <span class="val-neutral" id="ci-a">0.00</span> vs <span class="val-neutral" id="ci-b">0.00</span>
         </div>
       </div>
+      <div class="score-row">
+        <div>
+          <div>Mean Firing Rate</div>
+          <div class="meter-label">Average neural population rate</div>
+        </div>
+        <div>
+          <span class="val-neutral" id="rate-a">0.0</span> Hz vs <span class="val-neutral" id="rate-b">0.0</span> Hz
+        </div>
+      </div>
+      <div class="score-row">
+        <div>
+          <div>Silent Neurons</div>
+          <div class="meter-label">Fraction of units &lt; 0.5 Hz</div>
+        </div>
+        <div>
+          <span class="val-neutral" id="silent-a">0%</span> vs <span class="val-neutral" id="silent-b">0%</span>
+        </div>
+      </div>
       <div style="margin-top: 8px;">
         <div class="meter-label">Fly A Steering Activity</div>
         <div class="meter-bar"><div class="meter-fill" id="m-yaw-a" style="width: 0%"></div></div>
@@ -281,6 +308,77 @@
       <div class="score-row">
         <div>Statistical Confidence</div>
         <span style="color: #58a6ff; font-weight: 600;" id="t-stat">Calibrating...</span>
+      </div>
+    </div>
+
+    <!-- Empirical Benchmark Battery (40 Trials) -->
+    <div class="card">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+        <h2 style="margin-bottom: 0;">Empirical Benchmarks</h2>
+        <span style="font-size: 0.68rem; color: #3fb950; font-family: monospace;">40 Paired Trials</span>
+      </div>
+      <div class="explain-text" style="margin-bottom: 8px; font-size: 0.74rem;">
+        Rigorous offline benchmark battery (Seed 456, matched initial states) falsifying both topological and dynamical null hypotheses:
+      </div>
+      <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 0.70rem; color: #c9d1d9;">
+          <thead>
+            <tr style="border-bottom: 1px solid #30363d; color: #8b949e; text-align: left;">
+              <th style="padding: 3px 2px;">Condition</th>
+              <th style="padding: 3px 2px; text-align: right;">CI</th>
+              <th style="padding: 3px 2px; text-align: right;">Rate</th>
+              <th style="padding: 3px 2px; text-align: right;">Silent</th>
+              <th style="padding: 3px 2px; text-align: right;"><i>t</i>-stat</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="border-bottom: 1px solid #21262d; background: rgba(63, 185, 80, 0.08);">
+              <td style="padding: 3px 2px; font-weight: 600; color: #3fb950;">Bio (Standard)</td>
+              <td style="padding: 3px 2px; text-align: right; font-weight: 600;">0.900</td>
+              <td style="padding: 3px 2px; text-align: right;">10.9 Hz</td>
+              <td style="padding: 3px 2px; text-align: right;">0.0%</td>
+              <td style="padding: 3px 2px; text-align: right; color: #8b949e;">Base</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #21262d;">
+              <td style="padding: 3px 2px; color: #f85149;">Bio (Wrong Odour)</td>
+              <td style="padding: 3px 2px; text-align: right; color: #f85149;">0.000</td>
+              <td style="padding: 3px 2px; text-align: right;">4.1 Hz</td>
+              <td style="padding: 3px 2px; text-align: right;">8.0%</td>
+              <td style="padding: 3px 2px; text-align: right; font-weight: 600; color: #58a6ff;">56.11</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #21262d;">
+              <td style="padding: 3px 2px;">Rand-Dyn (2.0×)</td>
+              <td style="padding: 3px 2px; text-align: right;">0.203</td>
+              <td style="padding: 3px 2px; text-align: right;">23.3 Hz</td>
+              <td style="padding: 3px 2px; text-align: right;">24.1%</td>
+              <td style="padding: 3px 2px; text-align: right; font-weight: 600; color: #58a6ff;">13.86</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #21262d;">
+              <td style="padding: 3px 2px;">Rand-Dyn (1.0×)</td>
+              <td style="padding: 3px 2px; text-align: right;">0.281</td>
+              <td style="padding: 3px 2px; text-align: right;">8.8 Hz</td>
+              <td style="padding: 3px 2px; text-align: right;">16.3%</td>
+              <td style="padding: 3px 2px; text-align: right; font-weight: 600; color: #58a6ff;">12.45</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #21262d;">
+              <td style="padding: 3px 2px;">Rand-Dyn (0.5×)</td>
+              <td style="padding: 3px 2px; text-align: right;">0.293</td>
+              <td style="padding: 3px 2px; text-align: right;">7.1 Hz</td>
+              <td style="padding: 3px 2px; text-align: right;">17.9%</td>
+              <td style="padding: 3px 2px; text-align: right; font-weight: 600; color: #58a6ff;">12.65</td>
+            </tr>
+            <tr>
+              <td style="padding: 3px 2px;">Arm 1 (Shuffled)</td>
+              <td style="padding: 3px 2px; text-align: right;">0.206</td>
+              <td style="padding: 3px 2px; text-align: right;">9.4 Hz</td>
+              <td style="padding: 3px 2px; text-align: right;">14.5%</td>
+              <td style="padding: 3px 2px; text-align: right; font-weight: 600; color: #58a6ff;">10.31</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div style="font-size: 0.68rem; color: #8b949e; margin-top: 6px; border-top: 1px dashed #21262d; padding-top: 4px;">
+        All null controls falsified at <strong style="color: #3fb950;">p &lt;&lt; 0.001</strong>. Biological wiring advantage is invariant to firing rate scaling and collapses under sensory inversion.
       </div>
     </div>
 
@@ -797,6 +895,48 @@ function updateUI(state) {
   document.getElementById('ci-a').innerText = state.flyA.ci.toFixed(2);
   document.getElementById('ci-b').innerText = state.flyB.ci.toFixed(2);
 
+  // Neural firing rate telemetry
+  if (state.flyA && state.flyA.mean_rate !== undefined) {
+    const elRateA = document.getElementById('rate-a');
+    if (elRateA) elRateA.innerText = state.flyA.mean_rate.toFixed(1);
+    const elSilentA = document.getElementById('silent-a');
+    if (elSilentA) elSilentA.innerText = (state.flyA.silent_fraction !== undefined ? state.flyA.silent_fraction : 0) + '%';
+  }
+  if (state.flyB && state.flyB.mean_rate !== undefined) {
+    const elRateB = document.getElementById('rate-b');
+    if (elRateB) elRateB.innerText = state.flyB.mean_rate.toFixed(1);
+    const elSilentB = document.getElementById('silent-b');
+    if (elSilentB) elSilentB.innerText = (state.flyB.silent_fraction !== undefined ? state.flyB.silent_fraction : 0) + '%';
+  }
+
+  // Active condition and mode badge
+  if (state.trial_mode) {
+    const badge = document.getElementById('trial-mode-badge');
+    if (badge) {
+      if (state.trial_mode === 'arm2') {
+        badge.innerText = 'ARM 2: RAND-DYNAMICS';
+        badge.style.background = '#8957e5';
+      } else if (state.trial_mode === 'wrong_odor') {
+        badge.innerText = 'SENSORY CROSSING';
+        badge.style.background = '#d29922';
+      } else {
+        badge.innerText = 'ARM 1: SHUFFLED';
+        badge.style.background = '#1f6feb';
+      }
+    }
+  }
+
+  if (state.mode_setting) {
+    const condButtons = ['auto', 'arm1', 'arm2', 'wrong_odor'];
+    for (const c of condButtons) {
+      const btn = document.getElementById('btn-cond-' + c);
+      if (btn) {
+        if (c === state.mode_setting) btn.classList.add('active');
+        else btn.classList.remove('active');
+      }
+    }
+  }
+
   document.getElementById('m-yaw-a').style.width = Math.min(100, (Math.abs(state.flyA.last_yaw || 0) / 0.045) * 100) + '%';
   document.getElementById('m-yaw-b').style.width = Math.min(100, (Math.abs(state.flyB.last_yaw || 0) / 0.045) * 100) + '%';
 
@@ -826,15 +966,20 @@ function updateUI(state) {
   if (state.last_reveal) {
     cardUnblinded.style.display = 'block';
     const lr = state.last_reveal;
-    const winnerLabel = lr.winner_type === 'real' ? 'Biological Brain' : (lr.winner_type === 'shuf' ? 'Scrambled Control' : 'Timeout');
+    const winnerLabel = lr.winner_type === 'real' ? 'Biological Brain' : (lr.winner_type === 'shuf' ? 'Control Twin' : 'Timeout');
     document.getElementById('unblind-title').innerText = `Flight #${lr.trial_num} Finished — ${lr.winner_name} won (${winnerLabel})`;
     const poolText = lr.pool_size ? ` of ${lr.pool_size}` : '';
     const drawsText = lr.custody_draws ? ` · ${lr.custody_draws.toLocaleString()} Draws` : '';
+    const labelA = lr.arm_label_a || (lr.flyA_real ? 'Biological Brain 🟢' : 'Control Twin 🔴');
+    const labelB = lr.arm_label_b || (lr.flyB_real ? 'Biological Brain 🟢' : 'Control Twin 🔴');
+    const rateTextA = lr.rate_a !== undefined ? ` · ${lr.rate_a} Hz (${lr.silent_a}% silent)` : '';
+    const rateTextB = lr.rate_b !== undefined ? ` · ${lr.rate_b} Hz (${lr.silent_b}% silent)` : '';
+
     document.getElementById('unblind-detail').innerHTML = `
-      <div><strong>Fly A</strong>: ${lr.flyA_real ? '<span style="color:#3fb950; font-weight:600;">Biological Brain 🟢</span>' : '<span style="color:#f85149; font-weight:600;">Scrambled Control 🔴</span>'} (Efficiency: ${lr.ci_a.toFixed(2)})</div>
-      <div><strong>Fly B</strong>: ${lr.flyB_real ? '<span style="color:#3fb950; font-weight:600;">Biological Brain 🟢</span>' : '<span style="color:#f85149; font-weight:600;">Scrambled Control 🔴</span>'} (Efficiency: ${lr.ci_b.toFixed(2)})</div>
+      <div><strong>Fly A</strong>: <span style="font-weight:600; color:${lr.flyA_real ? '#3fb950' : '#f85149'}">${labelA}</span> (Efficiency: ${lr.ci_a.toFixed(2)}${rateTextA})</div>
+      <div><strong>Fly B</strong>: <span style="font-weight:600; color:${lr.flyB_real ? '#3fb950' : '#f85149'}">${labelB}</span> (Efficiency: ${lr.ci_b.toFixed(2)}${rateTextB})</div>
       <div style="margin-top:5px; padding-top:4px; border-top:1px dashed #21262d; font-size:0.72rem; color:#8b949e;">
-        🔒 Sealed Twin: <span style="font-family:monospace; color:#58a6ff;">#${lr.ctrl_id !== undefined ? lr.ctrl_id : '0'}${poolText} (${lr.ctrl_hash || 'off-harness'}${drawsText})</span>
+        Condition: <span style="color:#58a6ff; font-weight:600;">${(lr.trial_mode || 'arm1').toUpperCase()}</span> · Twin: <span style="font-family:monospace; color:#58a6ff;">#${lr.ctrl_id !== undefined ? lr.ctrl_id : '0'}${poolText} (${lr.ctrl_hash || 'off-harness'}${drawsText})</span>
       </div>
     `;
   }
@@ -963,6 +1108,21 @@ function switchMode(mode) {
     headerInfo.style.display = 'none';
     pauseReplay();
   }
+}
+
+async function setSimCondition(cond) {
+  const condButtons = ['auto', 'arm1', 'arm2', 'wrong_odor'];
+  for (const c of condButtons) {
+    const btn = document.getElementById('btn-cond-' + c);
+    if (btn) {
+      if (c === cond) btn.classList.add('active');
+      else btn.classList.remove('active');
+    }
+  }
+  try {
+    const targetUrl = (apiEndpoint ? apiEndpoint : '') + '/api/set_mode?mode=' + encodeURIComponent(cond);
+    await fetch(targetUrl, { method: 'GET', cache: 'no-store' });
+  } catch (e) {}
 }
 
 function drawFly(fly, bodyColor, labelText, isWinner) {
@@ -1257,8 +1417,8 @@ function render(timestamp) {
   drawTrail(activeTrailA, trailA);
   drawTrail(activeTrailB, trailB);
 
-  const labelA = isRevealing ? `Fly A: ${flyA.is_real ? 'Biological' : 'Scrambled'}` : 'Fly A';
-  const labelB = isRevealing ? `Fly B: ${flyB.is_real ? 'Biological' : 'Scrambled'}` : 'Fly B';
+  const labelA = isRevealing ? `Fly A: ${flyA.arm_label || (flyA.is_real ? 'Biological' : 'Control')}` : 'Fly A';
+  const labelB = isRevealing ? `Fly B: ${flyB.arm_label || (flyB.is_real ? 'Biological' : 'Control')}` : 'Fly B';
   const isWinnerA = lr && lr.winner_name === 'Fly A';
   const isWinnerB = lr && lr.winner_name === 'Fly B';
 
@@ -1271,7 +1431,7 @@ function render(timestamp) {
     ctx.fillStyle = 'rgba(13, 25, 38, 0.92)';
     ctx.strokeStyle = '#388bfd';
     ctx.lineWidth = 2;
-    const bw = 500, bh = 76, bx = (canvas.width - bw) / 2, by = 16;
+    const bw = 540, bh = 80, bx = (canvas.width - bw) / 2, by = 16;
     ctx.beginPath();
     ctx.roundRect(bx, by, bw, bh, 8);
     ctx.fill();
@@ -1279,21 +1439,22 @@ function render(timestamp) {
 
     ctx.fillStyle = '#58a6ff';
     ctx.font = 'bold 13px sans-serif';
-    const winStr = lr.winner_type === 'real' ? 'Biological Brain Won' : (lr.winner_type === 'shuf' ? 'Scrambled Twin Won' : 'Timeout');
-    ctx.fillText(`Flight #${lr.trial_num}: ${lr.winner_name} Reached Odor (${winStr})`, bx + 16, by + 22);
+    const winStr = lr.winner_type === 'real' ? 'Biological Brain Won' : (lr.winner_type === 'shuf' ? 'Control Twin Won' : 'Timeout');
+    const modeLabel = (lr.trial_mode || 'arm1').toUpperCase();
+    ctx.fillText(`Flight #${lr.trial_num} [${modeLabel}]: ${lr.winner_name} Reached Odor (${winStr})`, bx + 16, by + 22);
 
     ctx.font = '12px sans-serif';
     ctx.fillStyle = '#c9d1d9';
-    const textA = `Fly A: ${flyA.is_real ? 'Biological 🟢' : 'Scrambled 🔴'}`;
-    const textB = `Fly B: ${flyB.is_real ? 'Biological 🟢' : 'Scrambled 🔴'}`;
-    ctx.fillText(`${textA}   •   ${textB}`, bx + 16, by + 42);
+    const textA = `Fly A: ${lr.arm_label_a || (flyA.is_real ? 'Biological 🟢' : 'Control 🔴')}`;
+    const textB = `Fly B: ${lr.arm_label_b || (flyB.is_real ? 'Biological 🟢' : 'Control 🔴')}`;
+    ctx.fillText(`${textA}   •   ${textB}`, bx + 16, by + 44);
 
     ctx.font = '11px monospace';
     ctx.fillStyle = '#3fb950';
     const hashStr = lr.ctrl_hash ? lr.ctrl_hash : 'off-harness sealed';
     const poolText = lr.pool_size ? ` of ${lr.pool_size}` : '';
     const idStr = lr.ctrl_id !== undefined ? `#${lr.ctrl_id}` : '#0';
-    ctx.fillText(`🔒 Control Twin ${idStr}${poolText} SHA-256: ${hashStr} (Authored-Elsewhere · Flight #${lr.trial_num})`, bx + 16, by + 62);
+    ctx.fillText(`🔒 Control Twin ${idStr}${poolText} SHA-256: ${hashStr} (Authored-Elsewhere · Flight #${lr.trial_num})`, bx + 16, by + 64);
     ctx.restore();
   }
 

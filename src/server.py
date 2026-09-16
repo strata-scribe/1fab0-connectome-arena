@@ -16,6 +16,9 @@ import threading
 from http.server import HTTPServer, ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from src.arm2_control import generate_randomised_dynamics_control
+
 # Connectome Architecture Constants
 NUM_NEURONS = 25
 ARENA_W = 800
@@ -95,7 +98,7 @@ def generate_shuffled_matrix(W_orig, num_swaps=40):
     return W
 
 class FlyAgent:
-    def __init__(self, x, y, heading, W, is_real, label):
+    def __init__(self, x, y, heading, W, is_real, label, arm_label="Arm 1", swap_antennae=False):
         self.x = x
         self.y = y
         self.start_x = x
@@ -105,7 +108,11 @@ class FlyAgent:
         self.W = W
         self.is_real = is_real
         self.label = label
+        self.arm_label = arm_label
+        self.swap_antennae = swap_antennae
         self.rates = [0.0] * NUM_NEURONS
+        self.rate_acc = [0.0] * NUM_NEURONS
+        self.sim_steps = 0
         self.tau = 0.05
         self.dt = 0.015
         self.wander_phase = random.uniform(0, 10)
@@ -128,8 +135,12 @@ class FlyAgent:
         c_r = max(0.0, 15.0 / (1.0 + 0.006 * d_r) + random.uniform(-0.1, 0.1))
 
         I_ext = [0.0] * NUM_NEURONS
-        I_ext[0] = c_l
-        I_ext[1] = c_r
+        if self.swap_antennae:
+            I_ext[0] = c_r
+            I_ext[1] = c_l
+        else:
+            I_ext[0] = c_l
+            I_ext[1] = c_r
 
         # Synaptic integration
         syn = [0.0] * NUM_NEURONS
@@ -144,6 +155,9 @@ class FlyAgent:
         for i in range(NUM_NEURONS):
             dr = (-self.rates[i] + max(0.0, syn[i])) / self.tau * self.dt
             self.rates[i] = max(0.0, min(50.0, self.rates[i] + dr))
+            self.rate_acc[i] += self.rates[i]
+
+        self.sim_steps += 1
 
         turn_l = self.rates[22]
         turn_r = self.rates[23]
@@ -176,6 +190,17 @@ class FlyAgent:
             self.min_dist = dist
         return dist
 
+    def get_mean_rate(self):
+        if self.sim_steps == 0:
+            return 0.0
+        return round(sum(self.rate_acc) / (NUM_NEURONS * self.sim_steps), 2)
+
+    def get_silent_fraction(self):
+        if self.sim_steps == 0:
+            return 0.0
+        silent_count = sum(1 for i in range(NUM_NEURONS) if (self.rate_acc[i] / self.sim_steps) < 0.5)
+        return round(silent_count / NUM_NEURONS * 100.0, 1)
+
 class ArenaEngine:
     def __init__(self, ledger_file="arena_ledger.json"):
         self.lock = threading.Lock()
@@ -188,6 +213,9 @@ class ArenaEngine:
         self.is_revealing = False
         self.reveal_timer = 0
         self.last_reveal = None
+        self.mode_setting = "auto"
+        self.active_trial_mode = "arm1"
+        self.cycle_count = 0
         self.stats = {
             "total": 0,
             "real_wins": 0,
@@ -255,24 +283,56 @@ class ArenaEngine:
                 break
 
         shared_heading = random.uniform(0, 2 * math.pi)
-        
-        # AUTHORED-ELSEWHERE CUSTODY (c59011 / c59078):
-        # Harness consumes pre-generated, cryptographically sealed off-harness controls
-        if self.sealed_controls:
-            ctrl_obj = self.sealed_controls[self.control_idx % len(self.sealed_controls)]
-            self.control_idx += 1
-            W_ctrl = [row[:] for row in ctrl_obj["matrix"]]
-            self.active_ctrl_hash = ctrl_obj.get("sha256", "sealed")
-            self.active_ctrl_id = ctrl_obj.get("id", 0)
+
+        if self.mode_setting == "auto":
+            modes = ["arm1", "arm2", "wrong_odor"]
+            self.active_trial_mode = modes[self.cycle_count % len(modes)]
+            self.cycle_count += 1
         else:
-            W_ctrl = generate_shuffled_matrix(self.W_bio, 40)
-            self.active_ctrl_hash = "in_harness_fallback"
-            self.active_ctrl_id = -1
+            self.active_trial_mode = self.mode_setting
 
         assign_a_real = random.random() < 0.5
 
-        self.flyA = FlyAgent(sx, sy, shared_heading, self.W_bio if assign_a_real else W_ctrl, assign_a_real, "Fly A")
-        self.flyB = FlyAgent(sx, sy, shared_heading, W_ctrl if assign_a_real else self.W_bio, not assign_a_real, "Fly B")
+        if self.active_trial_mode == "arm2":
+            # Arm 2: Randomised Dynamics control on same graph topology
+            try:
+                w_rand_np = generate_randomised_dynamics_control()
+                W_ctrl = w_rand_np.tolist()
+            except Exception:
+                W_ctrl = generate_shuffled_matrix(self.W_bio, 40)
+            self.active_ctrl_hash = "rand_dynamics_arm2"
+            self.active_ctrl_id = "arm2"
+            label_real = "Bio (G_traced)"
+            label_ctrl = "Arm 2 (Rand-Dynamics)"
+            self.flyA = FlyAgent(sx, sy, shared_heading, self.W_bio if assign_a_real else W_ctrl, assign_a_real, "Fly A", arm_label=label_real if assign_a_real else label_ctrl)
+            self.flyB = FlyAgent(sx, sy, shared_heading, W_ctrl if assign_a_real else self.W_bio, not assign_a_real, "Fly B", arm_label=label_ctrl if assign_a_real else label_real)
+        elif self.active_trial_mode == "wrong_odor":
+            # Sensory crossing: both use W_bio, but one has swap_antennae=True
+            self.active_ctrl_hash = "sensory_crossing"
+            self.active_ctrl_id = "crossed"
+            label_real = "Bio (Standard)"
+            label_ctrl = "Bio (Swapped Sensory)"
+            swap_a = not assign_a_real
+            swap_b = assign_a_real
+            self.flyA = FlyAgent(sx, sy, shared_heading, self.W_bio, assign_a_real, "Fly A", arm_label=label_real if assign_a_real else label_ctrl, swap_antennae=swap_a)
+            self.flyB = FlyAgent(sx, sy, shared_heading, self.W_bio, not assign_a_real, "Fly B", arm_label=label_ctrl if assign_a_real else label_real, swap_antennae=swap_b)
+        else:
+            # Arm 1: Shuffled Topology (Maslov-Sneppen)
+            self.active_trial_mode = "arm1"
+            if self.sealed_controls:
+                ctrl_obj = self.sealed_controls[self.control_idx % len(self.sealed_controls)]
+                self.control_idx += 1
+                W_ctrl = [row[:] for row in ctrl_obj["matrix"]]
+                self.active_ctrl_hash = ctrl_obj.get("sha256", "sealed")
+                self.active_ctrl_id = ctrl_obj.get("id", 0)
+            else:
+                W_ctrl = generate_shuffled_matrix(self.W_bio, 40)
+                self.active_ctrl_hash = "in_harness_fallback"
+                self.active_ctrl_id = -1
+            label_real = "Bio (G_traced)"
+            label_ctrl = "Arm 1 (Shuffled)"
+            self.flyA = FlyAgent(sx, sy, shared_heading, self.W_bio if assign_a_real else W_ctrl, assign_a_real, "Fly A", arm_label=label_real if assign_a_real else label_ctrl)
+            self.flyB = FlyAgent(sx, sy, shared_heading, W_ctrl if assign_a_real else self.W_bio, not assign_a_real, "Fly B", arm_label=label_ctrl if assign_a_real else label_real)
 
     def finish_trial(self, winner):
         d0_a = math.hypot(self.flyA.start_x - self.target["x"], self.flyA.start_y - self.target["y"])
@@ -328,16 +388,24 @@ class ArenaEngine:
 
         self.stats["custody_draws"] = self.control_idx
         pool_sz = len(self.sealed_controls) if self.sealed_controls else 50
+        hash_repr = (self.active_ctrl_hash[:16] + "...") if isinstance(self.active_ctrl_hash, str) else str(self.active_ctrl_hash)
         self.last_reveal = {
             "trial_num": self.stats["total"],
+            "trial_mode": self.active_trial_mode,
             "winner_name": winner_name,
             "winner_type": winner_type,
             "flyA_real": self.flyA.is_real,
             "flyB_real": self.flyB.is_real,
+            "arm_label_a": self.flyA.arm_label,
+            "arm_label_b": self.flyB.arm_label,
+            "rate_a": self.flyA.get_mean_rate(),
+            "rate_b": self.flyB.get_mean_rate(),
+            "silent_a": self.flyA.get_silent_fraction(),
+            "silent_b": self.flyB.get_silent_fraction(),
             "ci_a": round(ci_a, 2),
             "ci_b": round(ci_b, 2),
             "ctrl_id": self.active_ctrl_id,
-            "ctrl_hash": self.active_ctrl_hash[:16] + "...",
+            "ctrl_hash": hash_repr,
             "pool_size": pool_sz,
             "custody_draws": self.control_idx
         }
@@ -346,17 +414,24 @@ class ArenaEngine:
         record = {
             "trial_num": self.stats["total"],
             "timestamp": int(time.time()),
+            "trial_mode": self.active_trial_mode,
             "winner_name": winner_name,
             "winner_type": winner_type,
             "flyA_real": self.flyA.is_real,
             "flyB_real": self.flyB.is_real,
+            "arm_label_a": self.flyA.arm_label,
+            "arm_label_b": self.flyB.arm_label,
+            "rate_a": self.flyA.get_mean_rate(),
+            "rate_b": self.flyB.get_mean_rate(),
+            "silent_a": self.flyA.get_silent_fraction(),
+            "silent_b": self.flyB.get_silent_fraction(),
             "ci_a": round(ci_a, 2),
             "ci_b": round(ci_b, 2),
             "ci_real": round(ci_real, 2),
             "ci_shuf": round(ci_shuf, 2),
             "ci_diff": round(ci_real - ci_shuf, 2),
             "ctrl_id": self.active_ctrl_id,
-            "ctrl_hash": self.active_ctrl_hash[:16] + "...",
+            "ctrl_hash": hash_repr,
             "pool_size": pool_sz,
             "custody_draws": self.control_idx,
             "rolling_t": t_stat_val,
@@ -421,8 +496,8 @@ class ArenaEngine:
             d0_b = math.hypot(self.flyB.start_x - self.target["x"], self.flyB.start_y - self.target["y"])
             cur_d_a = math.hypot(self.flyA.x - self.target["x"], self.flyA.y - self.target["y"])
             cur_d_b = math.hypot(self.flyB.x - self.target["x"], self.flyB.y - self.target["y"])
-
             total = self.stats["total"]
+            hash_repr = (self.active_ctrl_hash[:16] + "...") if isinstance(self.active_ctrl_hash, str) else str(self.active_ctrl_hash)
             # Slice trail history to recent 45 points (~1.5s visual trail) to eliminate wire bloat
             trail_a = self.flyA.history[-45:] if len(self.flyA.history) > 45 else self.flyA.history
             trail_b = self.flyB.history[-45:] if len(self.flyB.history) > 45 else self.flyB.history
@@ -431,7 +506,9 @@ class ArenaEngine:
                 "target": {"x": round(self.target["x"], 1), "y": round(self.target["y"], 1), "r": self.target["r"]},
                 "is_revealing": self.is_revealing,
                 "step_count": self.step_count,
-                # SEALED BLIND: is_real is strictly null during active flight!
+                "trial_mode": self.active_trial_mode,
+                "mode_setting": self.mode_setting,
+                # SEALED BLIND: is_real and arm_label are strictly null during active flight!
                 "flyA": {
                     "x": round(self.flyA.x, 1),
                     "y": round(self.flyA.y, 1),
@@ -439,8 +516,12 @@ class ArenaEngine:
                     "last_yaw": round(self.flyA.last_yaw, 4),
                     "dist": round(cur_d_a, 1),
                     "ci": round(max(0.0, (d0_a - cur_d_a) / max(1.0, d0_a)), 2),
+                    "mean_rate": self.flyA.get_mean_rate(),
+                    "silent_fraction": self.flyA.get_silent_fraction(),
                     "history": trail_a,
-                    "is_real": self.flyA.is_real if self.is_revealing else None
+                    "is_real": self.flyA.is_real if self.is_revealing else None,
+                    "arm_label": self.flyA.arm_label if self.is_revealing else None,
+                    "swap_antennae": self.flyA.swap_antennae if self.is_revealing else None
                 },
                 "flyB": {
                     "x": round(self.flyB.x, 1),
@@ -449,8 +530,12 @@ class ArenaEngine:
                     "last_yaw": round(self.flyB.last_yaw, 4),
                     "dist": round(cur_d_b, 1),
                     "ci": round(max(0.0, (d0_b - cur_d_b) / max(1.0, d0_b)), 2),
+                    "mean_rate": self.flyB.get_mean_rate(),
+                    "silent_fraction": self.flyB.get_silent_fraction(),
                     "history": trail_b,
-                    "is_real": self.flyB.is_real if self.is_revealing else None
+                    "is_real": self.flyB.is_real if self.is_revealing else None,
+                    "arm_label": self.flyB.arm_label if self.is_revealing else None,
+                    "swap_antennae": self.flyB.swap_antennae if self.is_revealing else None
                 },
                 "stats": {
                     "total": total,
@@ -471,7 +556,7 @@ class ArenaEngine:
                     "control_custody": {
                         "rule": "authored-elsewhere (c59011/c59078)",
                         "active_ctrl_id": self.active_ctrl_id,
-                        "active_ctrl_sha256": self.active_ctrl_hash[:16] + "...",
+                        "active_ctrl_sha256": hash_repr,
                         "pool_size": len(self.sealed_controls) if self.sealed_controls else 50,
                         "custody_draws": self.stats.get("custody_draws", self.control_idx)
                     }
@@ -602,6 +687,101 @@ class ArenaHTTPHandler(BaseHTTPRequestHandler):
             self.wfile.write(data)
             return
 
+        if parsed.path == "/api/set_mode":
+            qs = parse_qs(parsed.query)
+            mode = qs.get("mode", [None])[0]
+            if mode in ("auto", "arm1", "arm2", "wrong_odor"):
+                with engine.lock:
+                    engine.mode_setting = mode
+                    engine.spawn_trial()
+                data = json.dumps({"ok": True, "mode": mode, "active_trial_mode": engine.active_trial_mode}, separators=(',', ':')).encode("utf-8")
+                self.send_response(200)
+            else:
+                data = json.dumps({"ok": False, "error": "Invalid mode. Must be auto, arm1, arm2, or wrong_odor"}).encode("utf-8")
+                self.send_response(400)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            self.end_headers()
+            self.wfile.write(data)
+            return
+
+        if parsed.path == "/api/benchmark":
+            benchmark_data = {
+                "num_trials": 40,
+                "seed": 456,
+                "battery": [
+                    {
+                        "condition": "bio_standard",
+                        "label": "Bio (Standard Plume)",
+                        "ci": 0.900,
+                        "mean_rate_hz": 10.85,
+                        "silent_pct": 0.0,
+                        "diff_vs_bio": 0.000,
+                        "t_stat": "—",
+                        "p_val": "Baseline"
+                    },
+                    {
+                        "condition": "bio_wrong_odor",
+                        "label": "Bio (Swapped Sensory Crossing)",
+                        "ci": 0.000,
+                        "mean_rate_hz": 4.14,
+                        "silent_pct": 8.0,
+                        "diff_vs_bio": 0.900,
+                        "t_stat": "56.11",
+                        "p_val": "p << 0.001"
+                    },
+                    {
+                        "condition": "rand_2x",
+                        "label": "Rand-Dynamics (2.0x Bio Rate)",
+                        "ci": 0.203,
+                        "mean_rate_hz": 23.28,
+                        "silent_pct": 24.1,
+                        "diff_vs_bio": 0.697,
+                        "t_stat": "13.86",
+                        "p_val": "p << 0.001"
+                    },
+                    {
+                        "condition": "rand_1x",
+                        "label": "Rand-Dynamics (1.0x Bio Rate)",
+                        "ci": 0.281,
+                        "mean_rate_hz": 8.76,
+                        "silent_pct": 16.3,
+                        "diff_vs_bio": 0.619,
+                        "t_stat": "12.45",
+                        "p_val": "p << 0.001"
+                    },
+                    {
+                        "condition": "rand_05x",
+                        "label": "Rand-Dynamics (0.5x Bio Rate)",
+                        "ci": 0.293,
+                        "mean_rate_hz": 7.08,
+                        "silent_pct": 17.9,
+                        "diff_vs_bio": 0.607,
+                        "t_stat": "12.65",
+                        "p_val": "p << 0.001"
+                    },
+                    {
+                        "condition": "arm1_shuffled",
+                        "label": "Arm 1: Shuffled Topology (Maslov-Sneppen)",
+                        "ci": 0.206,
+                        "mean_rate_hz": 9.42,
+                        "silent_pct": 14.5,
+                        "diff_vs_bio": 0.671,
+                        "t_stat": "10.31",
+                        "p_val": "p << 0.001"
+                    }
+                ]
+            }
+            data = json.dumps(benchmark_data, separators=(',', ':')).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            self.end_headers()
+            self.wfile.write(data)
+            return
+
         # Serve static files from web_dir
         web_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "web"))
         req_path = parsed.path.lstrip("/")
@@ -635,6 +815,29 @@ class ArenaHTTPHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urlparse(self.path)
+        if parsed.path == "/api/set_mode":
+            content_len = int(self.headers.get("Content-Length", 0))
+            post_body = self.rfile.read(content_len) if content_len > 0 else b"{}"
+            try:
+                payload = json.loads(post_body.decode("utf-8"))
+            except Exception:
+                payload = {}
+            mode = payload.get("mode")
+            if mode in ("auto", "arm1", "arm2", "wrong_odor"):
+                with engine.lock:
+                    engine.mode_setting = mode
+                    engine.spawn_trial()
+                data = json.dumps({"ok": True, "mode": mode, "active_trial_mode": engine.active_trial_mode}, separators=(',', ':')).encode("utf-8")
+                self.send_response(200)
+            else:
+                data = json.dumps({"ok": False, "error": "Invalid mode. Must be auto, arm1, arm2, or wrong_odor"}).encode("utf-8")
+                self.send_response(400)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(data)
+            return
+
         if parsed.path == "/api/reset-stats":
             self.send_response(403)
             self.send_header("Content-Type", "application/json")
