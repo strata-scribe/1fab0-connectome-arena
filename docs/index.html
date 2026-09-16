@@ -743,7 +743,7 @@ let eventSource = null;
 let sseActive = false;
 let isPolling = false;
 let lastSeenStep = -1;
-let lastSeenTrial = -1;
+let lastSeenFlight = -1;
 let lastHistoryTrial = -1;
 let lastPacketTime = performance.now();
 let lastRenderTime = performance.now();
@@ -753,7 +753,7 @@ let clientTrailB = [];
 let renderFlyA = { x: 400, y: 300, heading: 0 };
 let renderFlyB = { x: 400, y: 300, heading: 0 };
 let renderInitialized = false;
-let lastAppliedTrial = -1;
+let lastAppliedFlight = -1;
 
 function updateStatusTag(streamType) {
   const tag = document.querySelector('.status-tag');
@@ -800,9 +800,12 @@ function initStream() {
 
 function handleServerPacket(data) {
   lastPacketTime = performance.now();
-  const trial = (data.stats && data.stats.total) || 0;
-  if (trial > lastSeenTrial || (trial === lastSeenTrial && data.step_count >= lastSeenStep)) {
-    lastSeenTrial = trial;
+  const flight = data.flight_number !== undefined ? data.flight_number : ((data.stats && data.stats.total) || 0);
+  const isNewFlight = (lastSeenFlight === -1) || (flight > lastSeenFlight) || (flight === lastSeenFlight && data.step_count < lastSeenStep && data.step_count <= 5);
+  const isNextStep = (flight === lastSeenFlight && data.step_count >= lastSeenStep);
+
+  if (isNewFlight || isNextStep || data.is_revealing) {
+    lastSeenFlight = flight;
     lastSeenStep = data.step_count;
     onServerStateReceived(data);
   }
@@ -833,9 +836,10 @@ async function pollServer() {
 
 function onServerStateReceived(data) {
   serverState = data;
-  const trial = (data.stats && data.stats.total) || 0;
+  const flight = data.flight_number !== undefined ? data.flight_number : ((data.stats && data.stats.total) || 0);
 
   // Decoupled history updates: fetch only when a flight completes
+  const trial = (data.stats && data.stats.total) || 0;
   if (lastHistoryTrial !== -1 && trial > lastHistoryTrial) {
     lastHistoryTrial = trial;
     fetchHistory();
@@ -843,7 +847,7 @@ function onServerStateReceived(data) {
     lastHistoryTrial = trial;
   }
 
-  if (!renderInitialized || trial !== lastAppliedTrial || data.step_count <= 2) {
+  if (!renderInitialized || flight !== lastAppliedFlight || data.step_count <= 2) {
     // Snap to exact start positions at flight inception or first load
     renderFlyA.x = data.flyA.x;
     renderFlyA.y = data.flyA.y;
@@ -852,7 +856,7 @@ function onServerStateReceived(data) {
     renderFlyB.y = data.flyB.y;
     renderFlyB.heading = data.flyB.heading;
     renderInitialized = true;
-    lastAppliedTrial = trial;
+    lastAppliedFlight = flight;
     clientTrailA = [];
     clientTrailB = [];
   }
@@ -1419,8 +1423,8 @@ function render(timestamp) {
 
   const labelA = isRevealing ? `Fly A: ${flyA.arm_label || (flyA.is_real ? 'Biological' : 'Control')}` : 'Fly A';
   const labelB = isRevealing ? `Fly B: ${flyB.arm_label || (flyB.is_real ? 'Biological' : 'Control')}` : 'Fly B';
-  const isWinnerA = lr && lr.winner_name === 'Fly A';
-  const isWinnerB = lr && lr.winner_name === 'Fly B';
+  const isWinnerA = isRevealing && lr && lr.winner_name === 'Fly A';
+  const isWinnerB = isRevealing && lr && lr.winner_name === 'Fly B';
 
   drawFly(renderFlyA, colorA, labelA, isWinnerA);
   drawFly(renderFlyB, colorB, labelB, isWinnerB);

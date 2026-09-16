@@ -216,6 +216,7 @@ class ArenaEngine:
         self.mode_setting = "auto"
         self.active_trial_mode = "arm1"
         self.cycle_count = 0
+        self.flight_number = 0
         self.stats = {
             "total": 0,
             "real_wins": 0,
@@ -251,6 +252,7 @@ class ArenaEngine:
                     data = json.load(f)
                     if isinstance(data, dict) and "total" in data:
                         self.stats.update(data)
+                        self.flight_number = data.get("total", 0)
                         if "custody_draws" in data and isinstance(data["custody_draws"], int):
                             self.control_idx = data["custody_draws"]
                         else:
@@ -271,6 +273,7 @@ class ArenaEngine:
         self.step_count = 0
         self.is_revealing = False
         self.reveal_timer = 0
+        self.flight_number += 1
 
         self.target["x"] = random.uniform(140, ARENA_W - 140)
         self.target["y"] = random.uniform(120, ARENA_H - 120)
@@ -503,6 +506,7 @@ class ArenaEngine:
             trail_b = self.flyB.history[-45:] if len(self.flyB.history) > 45 else self.flyB.history
 
             state = {
+                "flight_number": self.flight_number,
                 "target": {"x": round(self.target["x"], 1), "y": round(self.target["y"], 1), "r": self.target["r"]},
                 "is_revealing": self.is_revealing,
                 "step_count": self.step_count,
@@ -615,12 +619,15 @@ class ArenaHTTPHandler(BaseHTTPRequestHandler):
             self.send_header("X-Accel-Buffering", "no")
             self.end_headers()
             last_step = -1
+            last_flight = -1
             try:
                 while True:
                     state = engine.get_state(lightweight=True)
                     step = state["step_count"]
-                    if step != last_step or state["is_revealing"]:
+                    flight = state.get("flight_number", 0)
+                    if step != last_step or flight != last_flight or state["is_revealing"]:
                         last_step = step
+                        last_flight = flight
                         data = json.dumps(state, separators=(',', ':'))
                         self.wfile.write(f"data: {data}\n\n".encode("utf-8"))
                         self.wfile.flush()
