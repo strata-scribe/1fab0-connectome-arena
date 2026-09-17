@@ -146,10 +146,10 @@ def create_biological_matrix():
         W[u][v_next] = 0.3
         W[u][v_prev] = 0.3
 
-    # Bilateral Reciprocal Inhibition (LAL/FB steering premotor interneurons)
-    # Prevents co-activation saturation and enables bistable symmetry breaking
-    W[14][15] = -1.5
-    W[15][14] = -1.5
+    # Premotor steering interneurons (14: Left, 15: Right)
+    # Decoupled to eliminate bistable latching and allow smooth continuous steering
+    W[14][15] = 0.0
+    W[15][14] = 0.0
     return W
 
 def generate_shuffled_matrix(W_orig, num_swaps=40):
@@ -311,8 +311,9 @@ class FlyAgent:
             rep = engine.repellent if engine else {"x": ARENA_W - target_x, "y": ARENA_H - target_y}
             d_rep_l = math.hypot(ant_lx - rep["x"], ant_ly - rep["y"])
             d_rep_r = math.hypot(ant_rx - rep["x"], ant_ry - rep["y"])
-            r_l = max(0.0, 18.0 / (1.0 + 0.008 * d_rep_l))
-            r_r = max(0.0, 18.0 / (1.0 + 0.008 * d_rep_r))
+            rep_r = 130.0
+            r_l = max(0.0, (1.0 - d_rep_l / rep_r) * 22.0) if d_rep_l < rep_r else 0.0
+            r_r = max(0.0, (1.0 - d_rep_r / rep_r) * 22.0) if d_rep_r < rep_r else 0.0
             if self.swap_antennae:
                 I_ext[0] = c_r; I_ext[1] = c_l
                 I_ext[4] += r_r; I_ext[5] += r_l
@@ -568,7 +569,7 @@ class FlyAgent:
         max_yaw = 0.055
 
         # Pure neural steering: (turn_r - turn_l) * gain + spontaneous exploratory casting
-        steer_gain = 0.0010 if item == 5 else 0.045
+        steer_gain = 0.0010 if item == 5 else 0.0040
         yaw = max(-max_yaw, min(max_yaw, (turn_r - turn_l) * steer_gain + casting_torque))
 
         # Biological Thigmotaxis (Wall-Following & Soft Perimeter Steering - physical boundary property for all bodies)
