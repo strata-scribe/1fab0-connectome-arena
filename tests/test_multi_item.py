@@ -63,6 +63,28 @@ class TestMultiItemAndDualDecoders(unittest.TestCase):
         self.assertGreater(dec_high["quire"]["mdn"], dec_low["quire"]["mdn"])
         self.assertLess(dec_high["quire"]["delta_hz"], dec_low["quire"]["delta_hz"])
 
+    def test_item2_smooth_avoidance_no_chattering_barrier(self):
+        """Item 2: Fly approaching the 110px high-concentration boundary must veer smoothly away without chattering."""
+        engine = ArenaEngine()
+        engine.set_item(2)
+        engine.target = {"x": 650, "y": 300, "r": 18}
+        # Start fly 120px away facing target
+        fly = FlyAgent(530, 300, 0.0, self.W_bio, True, "Fly A", item=2)
+
+        distances = []
+        for _ in range(50):
+            d = fly.step(engine)
+            distances.append(round(d, 1))
+
+        # Verify no 2-state periodic ping-pong lock (e.g. [111.4, 109.8, 111.4, 109.8])
+        tail = distances[-10:]
+        unique_tail = set(tail)
+        self.assertGreater(len(unique_tail), 2, "Fly must not be trapped in a 2-point chattering barrier loop")
+
+        # Verify the fly executed aversive steering (deviated laterally from y=300 to veer around core)
+        lateral_deviation = abs(fly.y - 300.0)
+        self.assertGreater(lateral_deviation, 2.0, "Fly must veer laterally away from high-concentration core")
+
     def test_item3_co2_walking_avoidance(self):
         """Item 3: CO2 cloud encounter triggers moonwalker MDN activation and negative delta_hz."""
         engine = ArenaEngine()
@@ -107,6 +129,23 @@ class TestMultiItemAndDualDecoders(unittest.TestCase):
         dec = fly.get_decoders(4)
         self.assertGreaterEqual(dec["quire"]["dnp01"], 90.0)
         self.assertTrue(dec["quire"]["escape_active"])
+
+    def test_item4_wall_reflection_during_escape(self):
+        """Item 4: Escaping fly reflecting off the arena wall must not get stuck vibrating against the wall."""
+        engine = ArenaEngine()
+        engine.set_item(4)
+        engine.looming_shadow = {"x": 720, "y": 300, "r": 60, "max_r": 150, "active": True}
+        # Start fly close to right wall (x=770, arena boundary is at 788)
+        fly = FlyAgent(770, 300, 0.0, self.W_bio, True, "Fly Loom", item=4)
+
+        x_coords = []
+        for _ in range(40):
+            fly.step(engine)
+            x_coords.append(round(fly.x, 1))
+
+        # Must not remain pinned at 788.0 for 20+ steps
+        pinned_count = sum(1 for x in x_coords if x >= 787.5)
+        self.assertLess(pinned_count, 15, "Fly must deflect and reflect off wall, not remain pinned vibrating against it")
 
     def test_item5_optomotor_yaw_steering(self):
         """Item 5: Grating rotation direction reverses steer asymmetry sign."""

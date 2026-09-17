@@ -217,6 +217,7 @@ class FlyAgent:
         self.rate_pip10 = 0.0
         self.courtship_active = False
         self.escape_active = False
+        self.escape_timer = 0
 
     def step(self, target_x_or_engine, target_y=None):
         if target_y is None and hasattr(target_x_or_engine, "target"):
@@ -266,16 +267,32 @@ class FlyAgent:
             I_ext[4] += r_l; I_ext[5] += r_r
 
         elif item == 2:
-            # Item 2: Concentration Reversal (low attraction vs high avoidance)
-            if d_center > 110.0:
+            # Item 2: Concentration Reversal (low attraction vs high aversive avoidance)
+            # Low-affinity aversive DM5 is recruited when odor concentration is high near center
+            core_r = 110.0
+            d_core_l = math.hypot(ant_lx - target_x, ant_ly - target_y)
+            d_core_r = math.hypot(ant_rx - target_x, ant_ry - target_y)
+
+            # Outer zone (d > core_r): DM1/VA2 attraction
+            # Inner zone (d <= core_r): DM5 recruits local aversive interneurons 4 and 5
+            dm5_l = max(0.0, (1.0 - d_core_l / core_r) * 28.0) if d_core_l < core_r else 0.0
+            dm5_r = max(0.0, (1.0 - d_core_r / core_r) * 28.0) if d_core_r < core_r else 0.0
+
+            # Bilateral tropotaxis: closer antenna to core inhibits same-side turn -> steers away
+            I_ext[4] += dm5_l * 1.6
+            I_ext[5] += dm5_r * 1.6
+
+            if d_center > core_r:
                 if self.swap_antennae:
                     I_ext[0] = c_r * 1.2; I_ext[1] = c_l * 1.2
                 else:
                     I_ext[0] = c_l * 1.2; I_ext[1] = c_r * 1.2
             else:
-                sat = max(0.0, (110.0 - d_center) / 110.0 * 25.0)
-                I_ext[4] += sat; I_ext[5] += sat
-                I_ext[0] = c_l * 0.3; I_ext[1] = c_r * 0.3
+                att_scale = max(0.1, d_center / core_r * 0.6)
+                if self.swap_antennae:
+                    I_ext[0] = c_r * att_scale; I_ext[1] = c_l * att_scale
+                else:
+                    I_ext[0] = c_l * att_scale; I_ext[1] = c_r * att_scale
 
         elif item == 3:
             # Item 3: CO2 Walking Avoidance (Bilateral Antennal Sensation)
@@ -324,10 +341,11 @@ class FlyAgent:
             # Item 6: Male Courtship Song Initiation
             fem = engine.female_target if engine else {"x": target_x, "y": target_y, "r": 25}
             d_fem = math.hypot(self.x - fem["x"], self.y - fem["y"])
-            if d_fem < 32.0:
-                contact_p = (1.0 - d_fem / 32.0) * 28.0
+            if d_fem < 38.0:
+                contact_p = (1.0 - d_fem / 38.0) * 32.0
                 for k in range(16, 22):
                     I_ext[k] += contact_p * 0.7
+                I_ext[0] = c_l * 0.8; I_ext[1] = c_r * 0.8
             else:
                 if self.swap_antennae:
                     I_ext[0] = c_r; I_ext[1] = c_l
@@ -365,11 +383,20 @@ class FlyAgent:
             co2_conc = max(0.0, 1.0 - d_co2 / co2_r)
             self.rate_mdn = max(32.0, min(65.0, 38.0 + co2_conc * 25.0 + (self.rates[4] + self.rates[5]) * 0.3))
             self.rate_dnp09 = max(0.0, 4.0 - co2_conc * 3.5)
-        elif item == 2 and d_center <= 110.0:
-            self.rate_mdn = max(26.0, min(55.0, 32.0 + (self.rates[4] + self.rates[5]) * 0.6))
-            self.rate_dnp09 = max(0.0, 8.0 - self.rates[4] * 0.3)
+        elif item == 2:
+            # Item 2: Concentration Reversal
+            # High conc core activates DM5 -> rises MDN moderately, reduces DNp09
+            core_conc = max(0.0, 1.0 - d_center / 110.0) if d_center < 110.0 else 0.0
+            dm5_activity = (self.rates[4] + self.rates[5])
+            if core_conc > 0.0:
+                self.rate_mdn = max(8.0, min(42.0, 10.0 + core_conc * 22.0 + dm5_activity * 0.3))
+                self.rate_dnp09 = max(2.0, min(35.0, 18.0 - core_conc * 14.0))
+            else:
+                self.rate_mdn = max(0.0, min(6.0, dm5_activity * 0.1))
+                self.rate_dnp09 = max(18.0, min(55.0, 24.0 + self.rates[24] * 0.8))
         elif item == 1 and (d_rep_l < 75.0 or d_rep_r < 75.0):
-            self.rate_mdn = max(18.0, min(50.0, 22.0 + (self.rates[4] + self.rates[5]) * 0.5))
+            self.rate_mdn = max(12.0, min(40.0, 14.0 + (self.rates[4] + self.rates[5]) * 0.4))
+            self.rate_dnp09 = max(4.0, min(45.0, 16.0 - self.rates[4] * 0.2))
         else:
             self.rate_mdn = max(0.0, min(12.0, (self.rates[4] + self.rates[5]) * 0.15))
 
@@ -378,15 +405,26 @@ class FlyAgent:
         # 3. Looming Giant Fibre DNp01
         if item == 4:
             loom_urg = loom_r / max(15.0, d_loom)
-            if loom_urg > 0.65 or loom_r > 75.0:
+            if loom_urg > 0.42 or d_loom < loom_r * 1.5:
                 self.rate_dnp01 = round(min(180.0, 98.0 + loom_urg * 45.0), 1)
-                self.escape_active = True
+                if self.escape_timer <= 0 and not self.escape_active:
+                    self.escape_timer = 22  # Escape leap duration ~0.7s
+                    self.escape_active = True
+                    loom_x = loom.get("x", 400)
+                    loom_y = loom.get("y", 100)
+                    self.heading = math.atan2(self.y - loom_y, self.x - loom_x) + random.uniform(-0.15, 0.15)
             else:
                 self.rate_dnp01 = round(min(40.0, loom_urg * 30.0), 1)
-                self.escape_active = False
+                if self.escape_timer <= 0:
+                    self.escape_active = False
         else:
             self.rate_dnp01 = 0.0
             self.escape_active = False
+
+        if self.escape_timer > 0:
+            self.escape_timer -= 1
+            if self.escape_timer <= 0:
+                self.escape_active = False
 
         # 4. Steering DNa02 and Horizontal System (HS)
         turn_l = self.rates[22]
@@ -411,9 +449,9 @@ class FlyAgent:
 
         # 5. Courtship song neurons: pC1 and pIP10
         if item == 6:
-            if d_fem < 32.0:
-                self.rate_pc1 = round(min(60.0, 34.0 + (32.0 - d_fem) * 1.1), 1)
-                self.rate_pip10 = round(min(80.0, 44.0 + (32.0 - d_fem) * 1.5), 1)
+            if d_fem < 38.0:
+                self.rate_pc1 = round(min(60.0, 34.0 + (38.0 - d_fem) * 1.1), 1)
+                self.rate_pip10 = round(min(80.0, 44.0 + (38.0 - d_fem) * 1.5), 1)
                 self.courtship_active = True
             else:
                 self.rate_pc1 = round(max(0.0, 1.2 + random.uniform(-0.2, 0.2)), 1)
@@ -430,13 +468,12 @@ class FlyAgent:
         max_yaw = 0.045
 
         if item == 5:
-            steer_bias = (self.rate_dna02_r - self.rate_dna02_l) * 0.00035
-            yaw = max(-max_yaw, min(max_yaw, steer_bias + casting_torque * 0.5))
+            # Optomotor: wide circular arcs in direction of rotating visual stripes
+            steer_bias = (self.rate_dna02_r - self.rate_dna02_l) * 0.00018
+            yaw = max(-0.032, min(0.032, steer_bias + casting_torque * 0.4))
         elif item == 4 and self.escape_active:
-            loom = engine.looming_shadow if engine else {"x": 400, "y": 100}
-            escape_angle = math.atan2(self.y - loom["y"], self.x - loom["x"])
-            self.heading = escape_angle + random.uniform(-0.15, 0.15)
-            yaw = 0.0
+            # During escape leap, preserve ballistic escape heading with gentle deflection
+            yaw = casting_torque * 0.15
         elif item == 3 and d_co2 < co2_r:
             # Active repulsive yaw turning while reversing out of CO2 plume
             co2 = engine.co2_cloud if engine else {"x": 400, "y": 300}
@@ -444,17 +481,43 @@ class FlyAgent:
             diff = (self.heading - plume_angle + math.pi) % (2 * math.pi) - math.pi
             steer_away = 0.025 if diff > 0 else -0.025
             yaw = max(-max_yaw * 1.2, min(max_yaw * 1.2, (turn_r - turn_l) * 0.03 + steer_away + casting_torque * 0.5))
+        elif item == 2 and d_center < 110.0:
+            # Item 2: Active aversive steering away from toxic high-concentration center
+            target_angle = math.atan2(target_y - self.y, target_x - self.x)
+            diff = (self.heading - target_angle + math.pi) % (2 * math.pi) - math.pi
+            steer_away = 0.028 if diff > 0 else -0.028
+            yaw = max(-max_yaw * 1.2, min(max_yaw * 1.2, (turn_r - turn_l) * 0.03 + steer_away + casting_torque * 0.4))
+        elif item == 1 and (d_rep_l < 75.0 or d_rep_r < 75.0):
+            # Item 1: Smoothly veer away from repellent
+            rep = engine.repellent if engine else {"x": ARENA_W - target_x, "y": ARENA_H - target_y}
+            rep_angle = math.atan2(rep["y"] - self.y, rep["x"] - self.x)
+            diff = (self.heading - rep_angle + math.pi) % (2 * math.pi) - math.pi
+            steer_away = 0.025 if diff > 0 else -0.025
+            yaw = max(-max_yaw * 1.1, min(max_yaw * 1.1, (turn_r - turn_l) * 0.025 + steer_away + casting_torque * 0.4))
+        elif item == 6 and self.courtship_active:
+            # Face the female while singing courtship song
+            fem = engine.female_target if engine else {"x": target_x, "y": target_y}
+            fem_angle = math.atan2(fem["y"] - self.y, fem["x"] - self.x)
+            diff = (fem_angle - self.heading + math.pi) % (2 * math.pi) - math.pi
+            yaw = max(-0.035, min(0.035, diff * 0.2 + casting_torque * 0.2))
         else:
             yaw = max(-max_yaw, min(max_yaw, (turn_r - turn_l) * 0.02 + casting_torque))
 
         self.last_yaw = yaw
         self.heading += yaw
+        self.heading = (self.heading + math.pi) % (2 * math.pi) - math.pi
 
         # Forward or backward stepping velocity
         if item == 4 and self.escape_active:
-            spd = 6.2  # Emergency escape leap!
+            spd = 5.2  # Emergency escape leap!
         elif item == 6 and self.courtship_active:
-            spd = 0.3  # Pauses locomotion for acoustic wing vibration
+            spd = 0.35  # Pauses locomotion for acoustic wing vibration display
+        elif item == 2 and d_center < 50.0:
+            # Deep inside toxic high-concentration core: backward stepping with repulsive pivot
+            spd = -1.2
+        elif item == 2 and d_center < 110.0:
+            # High-concentration warning perimeter: slows down and veers away (avoidance behavior)
+            spd = 0.95
         elif self.delta_hz < -10.0:
             spd = -1.4  # Moonwalker backward walking
         else:
@@ -931,32 +994,40 @@ class ArenaEngine:
             d_b = self.flyB.step(self)
 
             # Termination conditions
-            if self.active_item in (1, 2):
+            if self.active_item == 1:
+                # Item 1: Odour Valence Ordering (attractant reached)
                 if d_a < self.target["r"] + 6:
                     self.finish_trial("A")
                 elif d_b < self.target["r"] + 6:
                     self.finish_trial("B")
                 elif self.step_count > 950:
                     self.finish_trial("timeout")
+            elif self.active_item == 2:
+                # Item 2: Concentration Reversal (low conc approach vs high conc avoidance)
+                # Evaluated after 360 steps: fly with higher chemotaxis index in attractive zone
+                # and successfully avoiding toxic high-conc core wins
+                if self.step_count >= 360:
+                    winner = "A" if self.flyA.ci > self.flyB.ci else "B"
+                    self.finish_trial(winner)
             elif self.active_item == 3:
-                # CO2 avoidance: finish after 400 steps or timeout
-                if self.step_count >= 400:
+                # Item 3: CO2 avoidance: finish after 360 steps
+                if self.step_count >= 360:
                     winner = "A" if self.flyA.ci > self.flyB.ci else "B"
                     self.finish_trial(winner)
             elif self.active_item == 4:
-                # Looming escape: if emergency escape executed and distanced
-                if (self.flyA.escape_active or self.flyB.escape_active) and self.step_count >= 250:
+                # Item 4: Looming escape: if emergency escape executed and distanced
+                if (self.flyA.escape_active or self.flyB.escape_active) and self.step_count >= 240:
                     winner = "A" if self.flyA.is_real else "B"
                     self.finish_trial(winner)
-                elif self.step_count > 450:
+                elif self.step_count > 420:
                     self.finish_trial("timeout")
             elif self.active_item == 5:
-                # Optomotor: evaluated after both rotation directions tested
+                # Item 5: Optomotor: evaluated after both rotation directions tested
                 if self.step_count >= 340:
                     winner = "A" if self.flyA.is_real else "B"
                     self.finish_trial(winner)
             elif self.active_item == 6:
-                # Courtship song: when song successfully initiated
+                # Item 6: Courtship song: when song successfully initiated
                 if self.female_target["song_active"] and self.step_count >= 220:
                     winner = "A" if self.flyA.courtship_active else "B"
                     self.finish_trial(winner)
@@ -964,7 +1035,7 @@ class ArenaEngine:
                     self.finish_trial("A")
                 elif d_b < self.target["r"] + 8:
                     self.finish_trial("B")
-                elif self.step_count > 800:
+                elif self.step_count > 700:
                     self.finish_trial("timeout")
             else:
                 if d_a < self.target["r"] + 6:
