@@ -10,6 +10,7 @@ from src.arm2_control import (
     generate_randomised_dynamics_control,
     generate_randomised_time_constants,
     generate_sign_permuted_control,
+    generate_arm2_extended_control,
     verify_arm2_control,
     verify_arm2_extended_control
 )
@@ -141,3 +142,38 @@ def test_flight_simulation_with_vectorized_tau():
     assert "ci_unclipped" in telem
     assert "displacement" in telem
     assert "behavior" in telem
+
+def test_flight_simulation_sensory_crossing():
+    conn = FlyConnectome(seed=42)
+    sim_normal = FlightSimulation(conn.W, pos=[-35.0, 0.0], heading=0.0, swap_antennae=False)
+    sim_crossed = FlightSimulation(conn.W, pos=[-35.0, 0.0], heading=0.0, swap_antennae=True)
+    for _ in range(400):
+        sim_normal.step()
+        sim_crossed.step()
+    assert sim_normal.compute_displacement() > sim_crossed.compute_displacement()
+    assert sim_crossed.compute_displacement() < 0.0, "Sensory crossing must steer away from plume"
+    assert sim_crossed.compute_unclipped_chemotaxis_index() < 0.0
+
+def test_flight_simulation_extreme_tau_stability():
+    conn = FlyConnectome(seed=42)
+    # Extremely small tau where forward Euler dt / tau = 0.015 / 0.003 = 5.0 (unstable without bounded decay)
+    sim = FlightSimulation(conn.W, pos=[-35.0, 0.0], heading=0.0, tau=0.003)
+    for _ in range(100):
+        d = sim.step()
+    assert np.all(np.isfinite(sim.rates))
+    assert np.all(sim.rates >= 0.0)
+    assert np.all(sim.rates <= 50.0)
+
+def test_sign_permutations_modes():
+    conn = FlyConnectome(seed=42)
+    W_bio = conn.W
+    rng = random.Random(303)
+    # Flip mode
+    W_flip = generate_sign_permuted_control(W_base=W_bio.tolist(), permute_mode="flip", rng=rng)
+    assert np.array_equal(W_bio != 0, W_flip != 0)
+    passed, _ = verify_arm2_extended_control(W_bio, W_flip, signs_permuted=True)
+    assert passed
+    # Extended generator with permute_mode="flip"
+    W_ctrl, tau_ctrl = generate_arm2_extended_control(rng=rng, randomize_tau=True, permute_signs=True, permute_mode="flip")
+    assert W_ctrl.shape == (25, 25)
+    assert tau_ctrl is not None and len(tau_ctrl) == 25

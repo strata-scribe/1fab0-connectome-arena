@@ -145,6 +145,8 @@ def generate_sign_permuted_control(
     if W_base is None:
         connectome = FlyConnectome()
         W_base = connectome.W
+    else:
+        W_base = np.array(W_base, dtype=np.float32)
 
     W_out = np.zeros((NUM_NEURONS, NUM_NEURONS), dtype=np.float32)
 
@@ -191,6 +193,7 @@ def generate_arm2_extended_control(
     randomize_magnitudes: bool = True,
     randomize_tau: bool = False,
     permute_signs: bool = False,
+    permute_mode: str = "shuffle",
     tau_min: float = 0.01,
     tau_max: float = 0.10,
     enforce_symmetry: bool = True
@@ -211,7 +214,7 @@ def generate_arm2_extended_control(
     if permute_signs:
         W_ctrl = generate_sign_permuted_control(
             W_base=W_ctrl,
-            permute_mode="shuffle",
+            permute_mode=permute_mode,
             enforce_symmetry=enforce_symmetry,
             rng=rng
         )

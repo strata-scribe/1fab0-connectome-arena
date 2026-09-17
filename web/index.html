@@ -325,60 +325,92 @@
           <thead>
             <tr style="border-bottom: 1px solid #30363d; color: #8b949e; text-align: left;">
               <th style="padding: 3px 2px;">Condition</th>
-              <th style="padding: 3px 2px; text-align: right;">CI</th>
+              <th style="padding: 3px 2px; text-align: right;">CI (unclip)</th>
+              <th style="padding: 3px 2px; text-align: right;">&Delta;d</th>
+              <th style="padding: 3px 2px; text-align: right;">Path</th>
               <th style="padding: 3px 2px; text-align: right;">Rate</th>
-              <th style="padding: 3px 2px; text-align: right;">Silent</th>
+              <th style="padding: 3px 2px; text-align: right;">Behavior</th>
               <th style="padding: 3px 2px; text-align: right;"><i>t</i>-stat</th>
             </tr>
           </thead>
           <tbody>
             <tr style="border-bottom: 1px solid #21262d; background: rgba(63, 185, 80, 0.08);">
-              <td style="padding: 3px 2px; font-weight: 600; color: #3fb950;">Bio (Standard)</td>
-              <td style="padding: 3px 2px; text-align: right; font-weight: 600;">0.900</td>
+              <td style="padding: 3px 2px; font-weight: 600; color: #3fb950;">1. Bio (Standard)</td>
+              <td style="padding: 3px 2px; text-align: right; font-weight: 600;">+0.905</td>
+              <td style="padding: 3px 2px; text-align: right; color: #3fb950;">+55.8</td>
+              <td style="padding: 3px 2px; text-align: right;">152.4</td>
               <td style="padding: 3px 2px; text-align: right;">10.9 Hz</td>
-              <td style="padding: 3px 2px; text-align: right;">0.0%</td>
+              <td style="padding: 3px 2px; text-align: right; color: #3fb950;">100% Dir</td>
               <td style="padding: 3px 2px; text-align: right; color: #8b949e;">Base</td>
             </tr>
             <tr style="border-bottom: 1px solid #21262d;">
-              <td style="padding: 3px 2px; color: #f85149;">Bio (Wrong Odour)</td>
-              <td style="padding: 3px 2px; text-align: right; color: #f85149;">0.000</td>
+              <td style="padding: 3px 2px; color: #f85149;">2. Bio (Swapped Odour)</td>
+              <td style="padding: 3px 2px; text-align: right; color: #f85149;">-1.849</td>
+              <td style="padding: 3px 2px; text-align: right; color: #f85149;">-113.8</td>
+              <td style="padding: 3px 2px; text-align: right;">144.6</td>
               <td style="padding: 3px 2px; text-align: right;">4.1 Hz</td>
-              <td style="padding: 3px 2px; text-align: right;">8.0%</td>
-              <td style="padding: 3px 2px; text-align: right; font-weight: 600; color: #58a6ff;">56.11</td>
+              <td style="padding: 3px 2px; text-align: right; color: #f85149;">100% Wand</td>
+              <td style="padding: 3px 2px; text-align: right; font-weight: 600; color: #58a6ff;">89.14</td>
             </tr>
             <tr style="border-bottom: 1px solid #21262d;">
-              <td style="padding: 3px 2px;">Rand-Dyn (2.0×)</td>
-              <td style="padding: 3px 2px; text-align: right;">0.203</td>
+              <td style="padding: 3px 2px;">3. Rand-Dyn (2.0&times;)</td>
+              <td style="padding: 3px 2px; text-align: right; color: #f85149;">-0.746</td>
+              <td style="padding: 3px 2px; text-align: right; color: #f85149;">-45.5</td>
+              <td style="padding: 3px 2px; text-align: right;">156.4</td>
               <td style="padding: 3px 2px; text-align: right;">23.3 Hz</td>
-              <td style="padding: 3px 2px; text-align: right;">24.1%</td>
-              <td style="padding: 3px 2px; text-align: right; font-weight: 600; color: #58a6ff;">13.86</td>
+              <td style="padding: 3px 2px; text-align: right;">48% Wand</td>
+              <td style="padding: 3px 2px; text-align: right; font-weight: 600; color: #58a6ff;">7.11</td>
             </tr>
             <tr style="border-bottom: 1px solid #21262d;">
-              <td style="padding: 3px 2px;">Rand-Dyn (1.0×)</td>
-              <td style="padding: 3px 2px; text-align: right;">0.281</td>
+              <td style="padding: 3px 2px;">4. Rand-Dyn (1.0&times;)</td>
+              <td style="padding: 3px 2px; text-align: right;">+0.197</td>
+              <td style="padding: 3px 2px; text-align: right;">+12.3</td>
+              <td style="padding: 3px 2px; text-align: right;">101.9</td>
               <td style="padding: 3px 2px; text-align: right;">8.8 Hz</td>
-              <td style="padding: 3px 2px; text-align: right;">16.3%</td>
-              <td style="padding: 3px 2px; text-align: right; font-weight: 600; color: #58a6ff;">12.45</td>
+              <td style="padding: 3px 2px; text-align: right;">73% Dir</td>
+              <td style="padding: 3px 2px; text-align: right; font-weight: 600; color: #58a6ff;">12.66</td>
             </tr>
             <tr style="border-bottom: 1px solid #21262d;">
-              <td style="padding: 3px 2px;">Rand-Dyn (0.5×)</td>
-              <td style="padding: 3px 2px; text-align: right;">0.293</td>
+              <td style="padding: 3px 2px;">5. Rand-Dyn (0.5&times;)</td>
+              <td style="padding: 3px 2px; text-align: right;">+0.255</td>
+              <td style="padding: 3px 2px; text-align: right;">+15.9</td>
+              <td style="padding: 3px 2px; text-align: right;">98.4</td>
               <td style="padding: 3px 2px; text-align: right;">7.1 Hz</td>
-              <td style="padding: 3px 2px; text-align: right;">17.9%</td>
-              <td style="padding: 3px 2px; text-align: right; font-weight: 600; color: #58a6ff;">12.65</td>
+              <td style="padding: 3px 2px; text-align: right;">68% Dir</td>
+              <td style="padding: 3px 2px; text-align: right; font-weight: 600; color: #58a6ff;">11.69</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #21262d;">
+              <td style="padding: 3px 2px;">6. Scrambled &tau; (10-100ms)</td>
+              <td style="padding: 3px 2px; text-align: right; color: #3fb950;">+0.840</td>
+              <td style="padding: 3px 2px; text-align: right; color: #3fb950;">+51.8</td>
+              <td style="padding: 3px 2px; text-align: right;">192.5</td>
+              <td style="padding: 3px 2px; text-align: right;">10.5 Hz</td>
+              <td style="padding: 3px 2px; text-align: right; color: #3fb950;">100% Dir</td>
+              <td style="padding: 3px 2px; text-align: right; font-weight: 600; color: #58a6ff;">3.09</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #21262d;">
+              <td style="padding: 3px 2px; color: #f85149;">7. Scrambled Signs (E/I)</td>
+              <td style="padding: 3px 2px; text-align: right; color: #f85149;">-1.975</td>
+              <td style="padding: 3px 2px; text-align: right; color: #f85149;">-121.4</td>
+              <td style="padding: 3px 2px; text-align: right;">244.0</td>
+              <td style="padding: 3px 2px; text-align: right;">12.4 Hz</td>
+              <td style="padding: 3px 2px; text-align: right; color: #f85149;">93% Wand</td>
+              <td style="padding: 3px 2px; text-align: right; font-weight: 600; color: #58a6ff;">18.79</td>
             </tr>
             <tr>
-              <td style="padding: 3px 2px;">Arm 1 (Shuffled)</td>
-              <td style="padding: 3px 2px; text-align: right;">0.206</td>
-              <td style="padding: 3px 2px; text-align: right;">9.4 Hz</td>
-              <td style="padding: 3px 2px; text-align: right;">14.5%</td>
-              <td style="padding: 3px 2px; text-align: right; font-weight: 600; color: #58a6ff;">10.31</td>
+              <td style="padding: 3px 2px; color: #f85149;">8. Full Scrambled Twin</td>
+              <td style="padding: 3px 2px; text-align: right; color: #f85149;">-2.457</td>
+              <td style="padding: 3px 2px; text-align: right; color: #f85149;">-151.1</td>
+              <td style="padding: 3px 2px; text-align: right;">270.2</td>
+              <td style="padding: 3px 2px; text-align: right;">14.1 Hz</td>
+              <td style="padding: 3px 2px; text-align: right; color: #f85149;">88% Wand</td>
+              <td style="padding: 3px 2px; text-align: right; font-weight: 600; color: #58a6ff;">18.31</td>
             </tr>
           </tbody>
         </table>
       </div>
       <div style="font-size: 0.68rem; color: #8b949e; margin-top: 6px; border-top: 1px dashed #21262d; padding-top: 4px;">
-        All null controls falsified at <strong style="color: #3fb950;">p &lt;&lt; 0.001</strong>. Biological wiring advantage is invariant to firing rate scaling and collapses under sensory inversion.
+        Unclipped displacement (&Delta;d = d<sub>0</sub> - d<sub>final</sub>) separates repellent wandering from paralysis. Biological steering survives per-neuron time-constant variations (&tau; ~ U[10ms, 100ms]) but collapses under synaptic sign and sensory scrambling (<strong style="color: #3fb950;">p &lt;&lt; 0.001</strong>).
       </div>
     </div>
 

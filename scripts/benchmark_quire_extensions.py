@@ -53,58 +53,12 @@ def run_single_simulation(
     label: str = "Fly",
     tau: Any = 0.05
 ) -> Dict[str, Any]:
-    sim = FlightSimulation(W, pos=start_pos.copy(), heading=start_heading, is_real=is_real, label=label, tau=tau)
+    sim = FlightSimulation(W, pos=start_pos.copy(), heading=start_heading, is_real=is_real, label=label, tau=tau, swap_antennae=swap_antennae)
     steps = 0
     rate_acc = np.zeros(sim.num_neurons, dtype=np.float64)
 
     for _ in range(MAX_STEPS):
-        if swap_antennae:
-            # Bilateral antennal coordinate sampling
-            ant_l = sim.pos + sim.antenna_dist * np.array([-math.sin(sim.heading), math.cos(sim.heading)], dtype=np.float32)
-            ant_r = sim.pos + sim.antenna_dist * np.array([math.sin(sim.heading), -math.cos(sim.heading)], dtype=np.float32)
-
-            d_l = float(np.linalg.norm(ant_l - sim.target_pos))
-            d_r = float(np.linalg.norm(ant_r - sim.target_pos))
-
-            # Concentration plume
-            c_l = max(0.0, 20.0 / (1.0 + 0.05 * d_l) + random.gauss(0, 0.02))
-            c_r = max(0.0, 20.0 / (1.0 + 0.05 * d_r) + random.gauss(0, 0.02))
-
-            # DELIBERATELY WRONG / SWAPPED SENSORY PROJECTION:
-            # Left antenna drives ORN_R (index 1), Right antenna drives ORN_L (index 0)
-            I_ext = np.zeros(sim.num_neurons, dtype=np.float32)
-            I_ext[0] = c_r
-            I_ext[1] = c_l
-
-            syn = np.dot(sim.rates, sim.W) + I_ext
-            dr = (-sim.rates + np.maximum(0.0, syn)) / sim.tau * sim.dt
-            sim.rates = np.clip(sim.rates + dr, 0.0, 50.0)
-
-            turn_left = float(sim.rates[22])
-            turn_right = float(sim.rates[23])
-
-            sim.wander_phase += 0.06
-            casting = math.sin(sim.wander_phase) * 0.8 + random.gauss(0, 0.2)
-            yaw_rate = (turn_left - turn_right) * 1.8 + casting
-            sim.heading += yaw_rate * sim.dt
-
-            speed = 8.0 + 0.4 * float(sim.rates[24])
-            velocity = speed * np.array([math.cos(sim.heading), math.sin(sim.heading)], dtype=np.float32)
-            sim.pos += velocity * sim.dt
-
-            step_dist = float(np.linalg.norm(sim.pos - sim.prev_pos))
-            sim.path_length += step_dist
-            sim.prev_pos = sim.pos.copy()
-            sim.trajectory.append(sim.pos.copy())
-            sim.history.append(sim.pos.copy())
-
-            dist = float(np.linalg.norm(sim.pos - sim.target_pos))
-            if dist < sim.min_dist:
-                sim.min_dist = dist
-            d = dist
-        else:
-            d = sim.step()
-
+        d = sim.step()
         rate_acc += sim.rates
         steps += 1
         if d < 3.0:
@@ -298,12 +252,13 @@ def main():
     print()
     print(f"  • Dynamics Scrambling Invariance Breakdown:")
     print(f"    - Rate calibration (1.0x bio rate): Bio advantage on displacement = {s['rand_1x']['mean_diff_disp']:+.2f} (paired t = {s['rand_1x']['t_stat_disp']:.2f}, p << 0.001).")
-    print(f"    - Scrambled time constants (tau ~ U[10ms, 100ms]): Bio advantage = {s['scrambled_tau']['mean_diff_disp']:+.2f} (paired t = {s['scrambled_tau']['t_stat_disp']:.2f}).")
-    print(f"    - Scrambled synaptic signs: Chemotaxis collapses to unclipped CI = {s['scrambled_signs']['mean_unclipped']:.3f} (paired t = {s['scrambled_signs']['t_stat_disp']:.2f}).")
+    print(f"    - Scrambled time constants (tau ~ U[10ms, 100ms]): Biological steering largely survives time-constant scrambling (CI = {s['scrambled_tau']['mean_unclipped']:.3f}, {s['scrambled_tau']['pct_directed']:.1f}% directed, paired t = {s['scrambled_tau']['t_stat_disp']:.2f}), proving robustness to per-neuron tau variation.")
+    print(f"    - Scrambled synaptic signs: Chemotaxis collapses completely to unclipped CI = {s['scrambled_signs']['mean_unclipped']:.3f} (paired t = {s['scrambled_signs']['t_stat_disp']:.2f}, {s['scrambled_signs']['pct_wandering']:.1f}% wandering).")
     print(f"    - Full Scrambled Twin (magnitudes + tau + signs): Chemotaxis collapses completely (unclipped CI = {s['full_scrambled']['mean_unclipped']:.3f}, displacement = {s['full_scrambled']['mean_disp']:+.2f}, paired t = {s['full_scrambled']['t_stat_disp']:.2f}).")
     print()
-    print("CONCLUSION: Continuous unclipped displacement conclusively demonstrates that biological connectome")
-    print("steering depends jointly on biological time constants, synaptic sign distribution, and weight ratios.")
+    print("CONCLUSION: Continuous unclipped displacement conclusively demonstrates that biological steering")
+    print("is robust to membrane time-constant variations, but critically depends on excitatory/inhibitory")
+    print("synaptic signs, weight ratios, and correct bilateral sensory projection.")
     print("═══════════════════════════════════════════════════════════════════════════════════════════════════════")
 
 

@@ -15,10 +15,11 @@ class FlightSimulation:
     Continuous agent physics and neural dynamics in an odor-plume environment.
     All flies share 100% identical kinematics, ODE parameters, and unbiased exploratory casting.
     """
-    def __init__(self, W, pos=None, heading=None, target_pos=None, is_real=True, label="Fly", tau: Union[float, np.ndarray, List[float]] = 0.05):
+    def __init__(self, W, pos=None, heading=None, target_pos=None, is_real=True, label="Fly", tau: Union[float, np.ndarray, List[float]] = 0.05, swap_antennae: bool = False):
         self.W = np.array(W, dtype=np.float32)
         self.is_real = is_real
         self.label = label
+        self.swap_antennae = swap_antennae
         self.num_neurons = self.W.shape[0]
         
         # Neural state vector (firing rates in Hz)
@@ -61,15 +62,22 @@ class FlightSimulation:
         c_l = max(0.0, 20.0 / (1.0 + 0.05 * d_l) + random.gauss(0, 0.02))
         c_r = max(0.0, 20.0 / (1.0 + 0.05 * d_r) + random.gauss(0, 0.02))
 
-        # 3. External Sensory Current Injection to ORNs
+        # 3. External Sensory Current Injection to ORNs (supports sensory crossing)
         I_ext = np.zeros(self.num_neurons, dtype=np.float32)
-        I_ext[0] = c_l
-        I_ext[1] = c_r
+        if self.swap_antennae:
+            I_ext[0] = c_r
+            I_ext[1] = c_l
+        else:
+            I_ext[0] = c_l
+            I_ext[1] = c_r
 
         # 4. Continuous Leaky Integrate Firing Rate ODE:
         # tau * dr/dt = -r + ReLU(W^T * r + I_ext)
+        # Decay factor clamped to <= 1.0 guarantees numerical stability for all tau > 0
         synaptic_input = np.dot(self.rates, self.W) + I_ext
-        dr = (-self.rates + np.maximum(0.0, synaptic_input)) / self.tau * self.dt
+        target_rate = np.maximum(0.0, synaptic_input)
+        decay_factor = np.clip(self.dt / np.maximum(1e-4, self.tau), 0.0, 1.0)
+        dr = (target_rate - self.rates) * decay_factor
         self.rates = np.clip(self.rates + dr, 0.0, 50.0)
 
         # 5. Motor Decoding from Descending Neurons
