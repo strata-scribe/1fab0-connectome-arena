@@ -278,17 +278,27 @@ class FlyAgent:
                 I_ext[0] = c_l * 0.3; I_ext[1] = c_r * 0.3
 
         elif item == 3:
-            # Item 3: CO2 Walking Avoidance
-            co2 = engine.co2_cloud if engine else {"x": 400, "y": 300, "r": 95}
+            # Item 3: CO2 Walking Avoidance (Bilateral Antennal Sensation)
+            co2 = engine.co2_cloud if engine else {"x": 400, "y": 300, "r": 105}
+            co2_r = co2.get("r", 105)
+            d_co2_l = math.hypot(ant_lx - co2["x"], ant_ly - co2["y"])
+            d_co2_r = math.hypot(ant_rx - co2["x"], ant_ry - co2["y"])
             d_co2 = math.hypot(self.x - co2["x"], self.y - co2["y"])
-            co2_r = co2.get("r", 95)
+
+            # Bilateral concentration gradient: closer antenna receives stronger aversive excitation
+            co2_sig_l = max(0.0, (1.0 - d_co2_l / co2_r) * 35.0) if d_co2_l < co2_r else 0.0
+            co2_sig_r = max(0.0, (1.0 - d_co2_r / co2_r) * 35.0) if d_co2_r < co2_r else 0.0
+
+            # Antennal bilateral input to aversive local neurons 4 and 5
+            # Left CO2 excites local interneuron 4 -> inhibits PN 2 -> right turn dominates (steers away)
+            # Right CO2 excites local interneuron 5 -> inhibits PN 3 -> left turn dominates (steers away)
+            I_ext[4] += co2_sig_l * 1.8
+            I_ext[5] += co2_sig_r * 1.8
+
             if d_co2 < co2_r:
-                co2_intensity = (1.0 - d_co2 / co2_r) * 35.0
-                I_ext[4] += co2_intensity * 1.6
-                I_ext[5] += co2_intensity * 1.6
-                I_ext[0] = 0.0; I_ext[1] = 0.0
+                I_ext[0] = c_l * 0.1; I_ext[1] = c_r * 0.1
             else:
-                I_ext[0] = c_l * 0.5; I_ext[1] = c_r * 0.5
+                I_ext[0] = c_l * 0.6; I_ext[1] = c_r * 0.6
 
         elif item == 4:
             # Item 4: Looming Visual Escape
@@ -352,8 +362,9 @@ class FlyAgent:
 
         # 2. Backward-walking moonwalker MDN
         if item == 3 and d_co2 < co2_r:
-            self.rate_mdn = max(38.0, min(65.0, 48.0 + (self.rates[4] + self.rates[5]) * 0.8))
-            self.rate_dnp09 = max(0.0, 4.0 - (self.rates[4] + self.rates[5]) * 0.2)
+            co2_conc = max(0.0, 1.0 - d_co2 / co2_r)
+            self.rate_mdn = max(32.0, min(65.0, 38.0 + co2_conc * 25.0 + (self.rates[4] + self.rates[5]) * 0.3))
+            self.rate_dnp09 = max(0.0, 4.0 - co2_conc * 3.5)
         elif item == 2 and d_center <= 110.0:
             self.rate_mdn = max(26.0, min(55.0, 32.0 + (self.rates[4] + self.rates[5]) * 0.6))
             self.rate_dnp09 = max(0.0, 8.0 - self.rates[4] * 0.3)
@@ -426,6 +437,13 @@ class FlyAgent:
             escape_angle = math.atan2(self.y - loom["y"], self.x - loom["x"])
             self.heading = escape_angle + random.uniform(-0.15, 0.15)
             yaw = 0.0
+        elif item == 3 and d_co2 < co2_r:
+            # Active repulsive yaw turning while reversing out of CO2 plume
+            co2 = engine.co2_cloud if engine else {"x": 400, "y": 300}
+            plume_angle = math.atan2(co2["y"] - self.y, co2["x"] - self.x)
+            diff = (self.heading - plume_angle + math.pi) % (2 * math.pi) - math.pi
+            steer_away = 0.025 if diff > 0 else -0.025
+            yaw = max(-max_yaw * 1.2, min(max_yaw * 1.2, (turn_r - turn_l) * 0.03 + steer_away + casting_torque * 0.5))
         else:
             yaw = max(-max_yaw, min(max_yaw, (turn_r - turn_l) * 0.02 + casting_torque))
 
@@ -438,7 +456,7 @@ class FlyAgent:
         elif item == 6 and self.courtship_active:
             spd = 0.3  # Pauses locomotion for acoustic wing vibration
         elif self.delta_hz < -10.0:
-            spd = -1.6  # Moonwalker backward walking
+            spd = -1.4  # Moonwalker backward walking
         else:
             thrust = self.rates[24]
             spd = self.speed * (1.0 + min(0.5, thrust * 0.02))
@@ -546,7 +564,7 @@ class ArenaEngine:
         # Environmental Entities for Items 1-6
         self.repellent = {"x": 200, "y": 300, "r": 18}
         self.conc_threshold = 110
-        self.co2_cloud = {"x": 400, "y": 300, "r": 95, "vx": 1.2, "vy": 0.8}
+        self.co2_cloud = {"x": 400, "y": 300, "r": 105, "vx": 0.0, "vy": 0.0}
         self.looming_shadow = {"x": 80, "y": 80, "r": 15, "max_r": 150, "growth_rate": 0.45, "active": True}
         self.optomotor = {"angle": 0.0, "dir": 1, "speed": 0.045}
         self.female_target = {"x": 650, "y": 300, "r": 22, "song_active": False}
@@ -649,11 +667,12 @@ class ArenaEngine:
         self.repellent["x"] = ARENA_W - self.target["x"]
         self.repellent["y"] = ARENA_H - self.target["y"]
 
-        # Item 3: CO2 cloud initialized in mid-arena
-        self.co2_cloud["x"] = random.uniform(250, ARENA_W - 250)
-        self.co2_cloud["y"] = random.uniform(200, ARENA_H - 200)
-        self.co2_cloud["vx"] = random.choice([-1.2, 1.2])
-        self.co2_cloud["vy"] = random.choice([-0.8, 0.8])
+        # Item 3: Stationary CO2 olfactory plume in central arena
+        self.co2_cloud["x"] = 400.0
+        self.co2_cloud["y"] = 300.0
+        self.co2_cloud["r"] = 105.0
+        self.co2_cloud["vx"] = 0.0
+        self.co2_cloud["vy"] = 0.0
 
         # Item 4: Looming shadow in corner/wall
         self.looming_shadow["x"] = random.choice([90, ARENA_W - 90])
@@ -885,13 +904,8 @@ class ArenaEngine:
 
             # Update Environmental Dynamics for Active Item
             if self.active_item == 3:
-                # CO2 cloud drifts
-                self.co2_cloud["x"] += self.co2_cloud["vx"]
-                self.co2_cloud["y"] += self.co2_cloud["vy"]
-                if self.co2_cloud["x"] < 120 or self.co2_cloud["x"] > ARENA_W - 120:
-                    self.co2_cloud["vx"] = -self.co2_cloud["vx"]
-                if self.co2_cloud["y"] < 120 or self.co2_cloud["y"] > ARENA_H - 120:
-                    self.co2_cloud["vy"] = -self.co2_cloud["vy"]
+                # Stationary CO2 aversive plume (no rigid translation or wall bouncing)
+                pass
 
             elif self.active_item == 4:
                 # Looming shadow expands

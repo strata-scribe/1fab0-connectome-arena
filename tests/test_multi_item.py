@@ -67,7 +67,7 @@ class TestMultiItemAndDualDecoders(unittest.TestCase):
         """Item 3: CO2 cloud encounter triggers moonwalker MDN activation and negative delta_hz."""
         engine = ArenaEngine()
         engine.set_item(3)
-        engine.co2_cloud = {"x": 300, "y": 300, "r": 100}
+        engine.co2_cloud = {"x": 300, "y": 300, "r": 100, "vx": 0.0, "vy": 0.0}
         fly_in_co2 = FlyAgent(305, 305, 0.0, self.W_bio, True, "Fly CO2", item=3)
 
         for _ in range(25):
@@ -76,6 +76,23 @@ class TestMultiItemAndDualDecoders(unittest.TestCase):
         dec = fly_in_co2.get_decoders(3)
         self.assertGreaterEqual(dec["quire"]["mdn"], 35.0)
         self.assertLess(dec["quire"]["delta_hz"], 0.0)
+
+    def test_item3_stationary_plume_and_bilateral_tropotaxis(self):
+        """Item 3: CO2 plume must remain a stationary olfactory field, not an unphysical drifting object."""
+        engine = ArenaEngine()
+        engine.set_item(3)
+        initial_x = engine.co2_cloud["x"]
+        initial_y = engine.co2_cloud["y"]
+
+        # Run multiple engine ticks
+        for _ in range(50):
+            engine.tick()
+
+        # Invariant: Olfactory diffusion field does not drift like a solid puck
+        self.assertEqual(engine.co2_cloud["x"], initial_x)
+        self.assertEqual(engine.co2_cloud["y"], initial_y)
+        self.assertEqual(engine.co2_cloud["vx"], 0.0)
+        self.assertEqual(engine.co2_cloud["vy"], 0.0)
 
     def test_item4_looming_visual_escape(self):
         """Item 4: Expanding dark shadow triggers Giant Fibre DNp01 activation."""

@@ -1581,7 +1581,7 @@ function renderEnvironment(item, envData, target) {
     ctx.arc(targetX, targetY, target.r, 0, Math.PI * 2);
     ctx.fill();
 
-    // Drifting CO2 cloud
+    // Stationary CO2 aversive plume
     if (envData.co2_cloud) {
       const cx = envData.co2_cloud.x;
       const cy = envData.co2_cloud.y;
@@ -1606,7 +1606,7 @@ function renderEnvironment(item, envData, target) {
 
       ctx.fillStyle = '#c9d1d9';
       ctx.font = 'bold 11px sans-serif';
-      ctx.fillText('CO2 GAS CLOUD (ORN_V → MDN MOONWALKER)', cx - 110, cy - cr - 6);
+      ctx.fillText('CO2 AVERSIVE PLUME (ORN_V → MDN MOONWALKER)', cx - 110, cy - cr - 6);
     }
   } else if (item === 4) {
     // Item 4: Looming Visual Escape
