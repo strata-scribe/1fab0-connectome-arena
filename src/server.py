@@ -128,14 +128,11 @@ def create_biological_matrix():
     # Central Complex Steering (LAL/FB)
     # Neuron 14 drives Left turn (22, DNa02_L)
     # Neuron 15 drives Right turn (23, DNa02_R)
-    W[2][14] = 1.8; W[3][15] = 1.8
-    W[14][22] = 2.4; W[15][23] = 2.4
+    W[2][14] = 1.0; W[3][15] = 1.0
+    W[14][22] = 1.2; W[15][23] = 1.2
     
     # Upwind thrust (neuron 24, DNp09)
     for i in range(6, 14): W[i][24] = 0.6
-    
-    # Lobula to Giant Fibre (DNp01 escape command, neuron 20)
-    for i in range(6, 14): W[i][20] = 2.2
     
     # Recurrent Central Complex Ring Attractor (symmetric bilateral cycle)
     cycle = [15, 14, 16, 18, 20, 21, 19, 17]
@@ -401,8 +398,7 @@ class FlyAgent:
             d_loom = math.hypot(self.x - loom["x"], self.y - loom["y"])
             loom_r = loom.get("r", 20)
             loom_urgency = max(0.0, min(35.0, (loom_r / max(20.0, d_loom)) * 25.0))
-            for k in range(6, 14):
-                I_ext[k] += loom_urgency * 1.2
+            I_ext[20] = min(45.0, loom_urgency * 1.8)
             I_ext[0] = 0.0; I_ext[1] = 0.0
 
         elif item == 5:
@@ -569,7 +565,7 @@ class FlyAgent:
         max_yaw = 0.055
 
         # Pure neural steering: (turn_r - turn_l) * gain + spontaneous exploratory casting
-        steer_gain = 0.0010 if item == 5 else 0.0040
+        steer_gain = 0.0010 if item == 5 else 0.035
         yaw = max(-max_yaw, min(max_yaw, (turn_r - turn_l) * steer_gain + casting_torque))
 
         # Biological Thigmotaxis (Wall-Following & Soft Perimeter Steering - physical boundary property for all bodies)
