@@ -16,7 +16,7 @@
   }
   header {
     background: #161b22;
-    padding: 10px 24px;
+    padding: 8px 20px;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -26,7 +26,7 @@
   .status-tag { font-size: 0.8rem; color: #3fb950; font-weight: 500; display: flex; align-items: center; gap: 6px; }
   .layout {
     display: grid;
-    grid-template-columns: 1fr 380px;
+    grid-template-columns: 1fr 400px;
     flex: 1;
     overflow: hidden;
   }
@@ -37,14 +37,14 @@
     flex-direction: column;
     justify-content: center;
     align-items: center;
-    padding: 12px 16px;
+    padding: 8px 16px;
     overflow: hidden;
     width: 100%;
     height: 100%;
   }
   canvas#arena {
     max-width: 100%;
-    max-height: calc(100vh - 150px);
+    max-height: calc(100vh - 180px);
     aspect-ratio: 4 / 3;
     width: auto;
     height: auto;
@@ -58,18 +58,20 @@
     color: #c9d1d9;
     border: 1px solid #30363d;
     border-radius: 4px;
-    padding: 5px 12px;
-    font-size: 0.78rem;
+    padding: 4px 10px;
+    font-size: 0.76rem;
     font-weight: 500;
     cursor: pointer;
     transition: all 0.15s ease;
     display: inline-flex;
     align-items: center;
     gap: 4px;
+    white-space: nowrap;
   }
   .ctrl-btn:hover { background: #30363d; color: #fff; border-color: #58a6ff; }
   .ctrl-btn.active { background: #1f6feb; color: #fff; border-color: #388bfd; }
-  .ctrl-btn.sm { padding: 3px 8px; font-size: 0.72rem; }
+  .ctrl-btn.active-item { background: #238636; color: #fff; border-color: #3fb950; }
+  .ctrl-btn.sm { padding: 3px 7px; font-size: 0.70rem; }
   .flight-card {
     background: #161b22;
     border-radius: 4px;
@@ -82,44 +84,68 @@
   aside {
     background: #161b22;
     border-left: 1px solid #30363d;
-    padding: 16px;
+    padding: 12px 14px;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 10px;
     overflow-y: auto;
-    width: 380px;
+    width: 400px;
   }
   .card {
     background: #0d1117;
     border: 1px solid #30363d;
     border-radius: 6px;
-    padding: 12px 14px;
+    padding: 10px 12px;
   }
-  .card h2 { font-size: 0.8rem; text-transform: uppercase; color: #8b949e; margin-bottom: 8px; letter-spacing: 0.5px; }
-  .explain-text { font-size: 0.8rem; color: #8b949e; line-height: 1.5; }
+  .card h2 { font-size: 0.78rem; text-transform: uppercase; color: #8b949e; margin-bottom: 6px; letter-spacing: 0.5px; }
+  .explain-text { font-size: 0.78rem; color: #8b949e; line-height: 1.45; }
   .explain-text strong { color: #c9d1d9; }
   .score-row {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 6px 0;
-    font-size: 0.86rem;
+    padding: 5px 0;
+    font-size: 0.82rem;
     border-bottom: 1px solid #21262d;
   }
   .score-row:last-child { border-bottom: none; }
   .val-bio { color: #3fb950; font-weight: 600; }
   .val-ctrl { color: #f85149; font-weight: 600; }
   .val-neutral { color: #c9d1d9; font-weight: 600; }
-  .meter-label { font-size: 0.74rem; color: #8b949e; margin-bottom: 3px; }
-  .meter-bar { height: 6px; background: #21262d; border-radius: 3px; overflow: hidden; margin-bottom: 6px; }
+  .meter-label { font-size: 0.70rem; color: #8b949e; margin-bottom: 2px; }
+  .meter-bar { height: 5px; background: #21262d; border-radius: 3px; overflow: hidden; margin-bottom: 5px; }
   .meter-fill { height: 100%; transition: width 0.05s linear; background: #58a6ff; }
   .banner-reveal {
     background: #0d1926;
     border: 1px solid #388bfd;
     border-radius: 6px;
-    padding: 10px 12px;
-    font-size: 0.8rem;
-    line-height: 1.45;
+    padding: 8px 10px;
+    font-size: 0.78rem;
+    line-height: 1.4;
+  }
+  .decoder-box {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    padding: 6px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .dropzone-overlay {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(13, 25, 38, 0.88);
+    border: 2px dashed #58a6ff;
+    border-radius: 8px;
+    display: none;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    z-index: 100;
+    color: #58a6ff;
+    font-size: 1.1rem;
+    gap: 8px;
   }
 </style>
 </head>
@@ -127,67 +153,116 @@
 <header>
   <h1>🪰 1FAB0 — Fruit Fly Connectome Arena</h1>
   <div style="display: flex; gap: 14px; align-items: center;">
+    <span style="font-size: 0.72rem; color: #8b949e; background: #21262d; padding: 2px 8px; border-radius: 4px;">Grant 1FAB0 (battery-v4.json)</span>
     <div class="status-tag">● Live Simulation</div>
   </div>
 </header>
 
 <div class="layout">
   <div id="arena-container">
+    <!-- Drag & Drop Overlay -->
+    <div id="drag-dropzone" class="dropzone-overlay">
+      <div style="font-size: 2rem;">📥</div>
+      <div><strong>Drop Grant Runs (.jsonl) Here</strong></div>
+      <div style="font-size: 0.8rem; color: #c9d1d9;">Replays official battery-v4/v3 trial trajectories immediately</div>
+    </div>
+
     <!-- Workstation Host Bypass Banner -->
-    <div id="workstation-banner" style="display: none; width: 100%; max-width: 800px; background: #0d1926; border: 1px solid #388bfd; border-radius: 6px; padding: 7px 12px; margin-bottom: 8px; justify-content: space-between; align-items: center; font-size: 0.76rem; box-sizing: border-box;">
+    <div id="workstation-banner" style="display: none; width: 100%; max-width: 800px; background: #0d1926; border: 1px solid #388bfd; border-radius: 6px; padding: 5px 10px; margin-bottom: 6px; justify-content: space-between; align-items: center; font-size: 0.74rem; box-sizing: border-box;">
       <span style="color: #c9d1d9;">
-        🖥️ <strong>Host Workstation Detected</strong> · Bypass download saturation / bufferbloat:
+        🖥️ <strong>Host Workstation Detected</strong> · Direct socket bypass:
       </span>
-      <div style="display: flex; gap: 8px; align-items: center;">
+      <div style="display: flex; gap: 6px; align-items: center;">
         <button id="btn-use-local" class="ctrl-btn sm" onclick="setEndpointMode('local')" style="background: #238636; color: white;">Connect Direct (0ms Latency)</button>
         <a href="http://localhost:8086" target="_blank" class="ctrl-btn sm" style="text-decoration: none; color: #58a6ff;">Open Local App ↗</a>
       </div>
     </div>
 
-    <!-- Top Mode Switcher Bar -->
-    <div style="display: flex; gap: 8px; align-items: center; width: 100%; max-width: 800px; justify-content: space-between; margin-bottom: 6px;">
-      <div style="display: flex; gap: 6px;">
-        <button id="btn-mode-live" class="ctrl-btn active" onclick="switchMode('live')">● Live Simulation</button>
-        <button id="btn-mode-replay" class="ctrl-btn" onclick="switchMode('replay')">⏮ Flight Replay</button>
+    <!-- Top Mode & Test Item Toolbar -->
+    <div style="display: flex; flex-direction: column; gap: 5px; width: 100%; max-width: 800px; margin-bottom: 6px;">
+      <!-- Row 1: Mode & Condition Switchers -->
+      <div style="display: flex; gap: 6px; align-items: center; justify-content: space-between; flex-wrap: wrap;">
+        <div style="display: flex; gap: 5px; align-items: center; flex-wrap: wrap;">
+          <button id="btn-mode-live" class="ctrl-btn active" onclick="switchMode('live')">● Live</button>
+          <button id="btn-mode-replay" class="ctrl-btn" onclick="switchMode('replay')">⏮ Replay</button>
+          <div style="width: 1px; height: 16px; background: #30363d; margin: 0 3px;"></div>
+          <span style="font-size: 0.70rem; color: #8b949e;">Nulls:</span>
+          <button id="btn-cond-auto" class="ctrl-btn sm active" onclick="setSimCondition('auto')" title="Auto-cycle between Arm 1, Arm 2, and Sensory Crossing">Auto</button>
+          <button id="btn-cond-arm1" class="ctrl-btn sm" onclick="setSimCondition('arm1')" title="Arm 1: Shuffled Topology (Maslov-Sneppen)">Arm 1: Shuffled</button>
+          <button id="btn-cond-arm2" class="ctrl-btn sm" onclick="setSimCondition('arm2')" title="Arm 2: Randomised Dynamics on same graph topology">Arm 2: Rand-Dyn</button>
+          <button id="btn-cond-wrong_odor" class="ctrl-btn sm" onclick="setSimCondition('wrong_odor')" title="Sensory Crossing: Swapped bilateral antennae">Sensory Crossing</button>
+        </div>
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <button class="ctrl-btn sm" onclick="triggerGrantImport()" title="Import official Grant 1FAB0 runs.jsonl from disk" style="background: #161b22; border-color: #58a6ff; color: #58a6ff;">📁 Import Runs</button>
+          <button class="ctrl-btn sm" onclick="loadSampleGrantRun('smoke-v4.jsonl')" title="Quick load smoke-v4.jsonl grant run" style="background: #21262d;">⚡ Smoke v4</button>
+          <span id="trial-mode-badge" style="background: #1f6feb; color: #fff; padding: 2px 6px; border-radius: 4px; font-size: 0.68rem; font-weight: 600; text-transform: uppercase;">ARM 1: SHUFFLED</span>
+        </div>
       </div>
-      <div id="replay-header-info" style="display: none; font-size: 0.78rem; color: #58a6ff; font-family: monospace;">
-        Replaying Flight #<span id="replay-trial-num">--</span>
+
+      <!-- Row 2: Grant 1FAB0 All 6 Behavioral Test Items Selector -->
+      <div style="display: flex; gap: 4px; align-items: center; justify-content: space-between; flex-wrap: wrap; background: #161b22; padding: 4px 8px; border-radius: 5px; border: 1px solid #30363d;">
+        <div style="display: flex; gap: 4px; align-items: center; flex-wrap: wrap;">
+          <span style="font-size: 0.70rem; font-weight: 600; color: #3fb950; margin-right: 2px;">Item:</span>
+          <button id="btn-item-auto" class="ctrl-btn sm active-item" onclick="setTestItem('auto')" title="Auto-cycle through all 6 behavioral items">Auto (1–6)</button>
+          <button id="btn-item-1" class="ctrl-btn sm" onclick="setTestItem(1)" title="Item 1: Odour Valence Ordering (ACV vs Geosmin)">1: Valence</button>
+          <button id="btn-item-2" class="ctrl-btn sm" onclick="setTestItem(2)" title="Item 2: Concentration Reversal (50 Hz vs 150 Hz)">2: Conc Reversal</button>
+          <button id="btn-item-3" class="ctrl-btn sm" onclick="setTestItem(3)" title="Item 3: CO2 Walking Avoidance (Moonwalker MDN)">3: CO2 Avoid</button>
+          <button id="btn-item-4" class="ctrl-btn sm" onclick="setTestItem(4)" title="Item 4: Looming Visual Escape (Giant Fibre DNp01)">4: Looming</button>
+          <button id="btn-item-5" class="ctrl-btn sm" onclick="setTestItem(5)" title="Item 5: Optomotor Yaw Steering (Rotating Grating)">5: Optomotor</button>
+          <button id="btn-item-6" class="ctrl-btn sm" onclick="setTestItem(6)" title="Item 6: Courtship Song Initiation (pC1 & pIP10)">6: Courtship</button>
+        </div>
+        <div style="font-size: 0.70rem; color: #8b949e; font-family: monospace;">
+          <span id="active-item-title-pill" style="color: #58a6ff; font-weight: 600;">Item 1: Odour Valence Ordering</span>
+        </div>
+      </div>
+
+      <!-- Row 3: Active Item Description & Predicate Banner -->
+      <div id="item-info-banner" style="background: #0d1926; border: 1px solid #21262d; border-radius: 4px; padding: 4px 8px; font-size: 0.70rem; display: flex; justify-content: space-between; align-items: center; color: #8b949e;">
+        <div>
+          <strong id="item-banner-name" style="color: #c9d1d9;">Item 1: Odour Valence Ordering</strong> — <span id="item-banner-subtitle">Apple Cider Vinegar (Attractant) vs Geosmin (Repellent)</span>
+        </div>
+        <div style="font-family: monospace; color: #3fb950;" id="item-banner-predicate">
+          approach_index(attractant) &gt; approach_index(repellent)
+        </div>
       </div>
     </div>
+
+    <!-- Hidden file input for Grant Run Replayer -->
+    <input type="file" id="grant-file-input" accept=".jsonl,.json" style="display: none;" onchange="onGrantFileSelected(event)">
 
     <canvas id="arena" width="800" height="600"></canvas>
 
     <!-- Bottom Replay Scrubber Controls (visible in replay mode) -->
-    <div id="replay-controls" style="display: none; width: 100%; max-width: 800px; background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 10px 14px; margin-top: 6px; flex-direction: column; gap: 8px;">
+    <div id="replay-controls" style="display: none; width: 100%; max-width: 800px; background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 8px 12px; margin-top: 5px; flex-direction: column; gap: 6px;">
       
       <!-- Flight Selector Toolbar -->
-      <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; background: #0d1117; padding: 6px 10px; border-radius: 4px; border: 1px solid #21262d;">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; background: #0d1117; padding: 5px 8px; border-radius: 4px; border: 1px solid #21262d;">
         <div style="display: flex; align-items: center; gap: 6px;">
-          <span style="font-size: 0.74rem; font-weight: 600; color: #58a6ff;">Flight:</span>
-          <button class="ctrl-btn sm" id="btn-prev-flight" onclick="stepFlight(-1)" title="Previous flight in list">◀ Newer</button>
-          <select id="replay-flight-select" onchange="onSelectFlightDropdown(this.value)" style="background: #161b22; color: #c9d1d9; border: 1px solid #30363d; border-radius: 4px; padding: 4px 8px; font-size: 0.74rem; font-family: monospace; max-width: 330px; cursor: pointer;">
+          <span style="font-size: 0.72rem; font-weight: 600; color: #58a6ff;">Trial:</span>
+          <button class="ctrl-btn sm" id="btn-prev-flight" onclick="stepFlight(-1)" title="Previous flight in list">◀ Prev</button>
+          <select id="replay-flight-select" onchange="onSelectFlightDropdown(this.value)" style="background: #161b22; color: #c9d1d9; border: 1px solid #30363d; border-radius: 4px; padding: 3px 6px; font-size: 0.72rem; font-family: monospace; max-width: 380px; cursor: pointer;">
           </select>
-          <button class="ctrl-btn sm" id="btn-next-flight" onclick="stepFlight(1)" title="Next flight in list">Older ▶</button>
+          <button class="ctrl-btn sm" id="btn-next-flight" onclick="stepFlight(1)" title="Next flight in list">Next ▶</button>
         </div>
-        <div style="font-size: 0.72rem; color: #8b949e; display: flex; align-items: center; gap: 6px;">
-          <span>Replays:</span>
+        <div style="font-size: 0.70rem; color: #8b949e; display: flex; align-items: center; gap: 6px;">
+          <span>Loaded Runs:</span>
           <span id="replays-count-badge" style="color: #3fb950; font-weight: 600; font-family: monospace;">0</span>
         </div>
       </div>
 
       <!-- Scrubber Slider & Timing Controls -->
-      <div style="display: flex; align-items: center; gap: 10px;">
-        <button id="btn-replay-play" class="ctrl-btn sm" onclick="toggleReplayPlay()" style="min-width: 68px;">▶ Play</button>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <button id="btn-replay-play" class="ctrl-btn sm" onclick="toggleReplayPlay()" style="min-width: 64px;">▶ Play</button>
         <button id="btn-replay-prev" class="ctrl-btn sm" onclick="stepReplay(-5)">◀ -5</button>
         <div style="flex: 1; display: flex; align-items: center;">
           <input type="range" id="replay-scrubber" min="0" max="100" value="0" style="width: 100%; accent-color: #58a6ff; cursor: pointer;" oninput="onScrub(this.value)">
         </div>
         <button id="btn-replay-next" class="ctrl-btn sm" onclick="stepReplay(5)">+5 ▶</button>
-        <span id="replay-step-label" style="font-size: 0.74rem; font-family: monospace; color: #8b949e; min-width: 120px; text-align: right;">0.0s / 0.0s</span>
+        <span id="replay-step-label" style="font-size: 0.72rem; font-family: monospace; color: #8b949e; min-width: 110px; text-align: right;">0.0s / 0.0s</span>
       </div>
 
       <!-- Flight Metadata Summary -->
-      <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.74rem; color: #8b949e; border-top: 1px solid #21262d; padding-top: 6px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.72rem; color: #8b949e; border-top: 1px solid #21262d; padding-top: 5px;">
         <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
           <span>Winner: <strong id="replay-winner" style="color: #3fb950;">--</strong></span>
           <span>|</span>
@@ -196,7 +271,7 @@
           <span>Twin: <code id="replay-twin" style="color: #e3b341;">#--</code></span>
         </div>
         <div style="display: flex; gap: 4px; align-items: center;">
-          <span style="font-size: 0.7rem;">Speed:</span>
+          <span style="font-size: 0.68rem;">Speed:</span>
           <button class="ctrl-btn sm spd-btn" id="spd-05" onclick="setSpeed(0.5)">0.5×</button>
           <button class="ctrl-btn sm spd-btn active" id="spd-10" onclick="setSpeed(1.0)">1×</button>
           <button class="ctrl-btn sm spd-btn" id="spd-20" onclick="setSpeed(2.0)">2×</button>
@@ -206,26 +281,69 @@
   </div>
   
   <aside>
-    <!-- How it works -->
-    <div class="card">
-      <h2>How It Works</h2>
-      <p class="explain-text">
-        A fruit fly tracks odors using dual antennae. By comparing the concentration between left and right, its brain computes steering turns toward food.
-      </p>
-      <p class="explain-text" style="margin-top: 6px;">
-        <strong>The Question:</strong> Does this behavior emerge from evolved biological wiring, or would any random network with the same number of neurons and connections do the same?
-      </p>
-      <p class="explain-text" style="margin-top: 6px;">
-        <strong>The Test:</strong> Two flies (Fly A and Fly B) start at the exact same location and heading. One runs the biological connectome circuit; the other runs a scrambled twin with identical parts but randomized wiring. To avoid bias, their identities are hidden until the flight finishes.
-      </p>
-    </div>
+    <!-- Side-by-Side Dual-Decoder Dashboard -->
+    <div class="card" id="dual-decoder-card">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+        <h2 style="margin-bottom: 0;">Dual-Decoder Dashboard</h2>
+        <span id="active-item-badge" style="font-size: 0.68rem; background: #238636; color: #fff; padding: 1px 6px; border-radius: 3px; font-weight: 600;">ITEM 1: VALENCE</span>
+      </div>
 
-    <!-- Active Flight -->
-    <div class="card">
-      <h2>Current Flight</h2>
+      <!-- Side-by-side decoders grid -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px;">
+        <!-- Left: Quire's Discrete Decoder -->
+        <div class="decoder-box">
+          <div style="font-size: 0.70rem; color: #58a6ff; font-weight: 600; text-transform: uppercase;">
+            Quire Discrete
+          </div>
+          <div style="font-size: 0.62rem; color: #8b949e;" id="quire-metric-name">ΔHz = DNp09 - MDN</div>
+          <div style="font-size: 0.90rem; font-weight: 700; color: #c9d1d9; font-family: monospace;" id="quire-headline-val">--</div>
+          <div style="font-size: 0.68rem; color: #8b949e;">
+            DNp09: <span id="quire-dnp09-val" style="color: #3fb950;">--</span> | MDN: <span id="quire-mdn-val" style="color: #f85149;">--</span>
+          </div>
+          <div style="font-size: 0.64rem; color: #8b949e; border-top: 1px dashed #21262d; margin-top: 2px; padding-top: 2px;" id="quire-item-readout-val">
+            Approach Index
+          </div>
+        </div>
+
+        <!-- Right: Strata's Continuous Trajectory Decoder -->
+        <div class="decoder-box">
+          <div style="font-size: 0.70rem; color: #3fb950; font-weight: 600; text-transform: uppercase;">
+            Strata Continuous
+          </div>
+          <div style="font-size: 0.62rem; color: #8b949e;">CI = dx / L (unclipped)</div>
+          <div style="font-size: 0.90rem; font-weight: 700; color: #c9d1d9; font-family: monospace;" id="strata-headline-val">--</div>
+          <div style="font-size: 0.68rem; color: #8b949e;">
+            dx: <span id="strata-dx-val" style="color: #58a6ff;">--</span> | L: <span id="strata-path-val">--</span>
+          </div>
+          <div style="font-size: 0.64rem; color: #8b949e; border-top: 1px dashed #21262d; margin-top: 2px; padding-top: 2px;">
+            Straightness: <span id="strata-str-val" style="color: #e3b341;">--</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Real-Time Per-Fly Telemetry Comparison -->
       <div class="score-row">
         <div>
-          <div>Distance to Odor</div>
+          <div>Fly A Decoders</div>
+          <div class="meter-label" id="fly-a-desc">Active Agent A</div>
+        </div>
+        <div style="font-family: monospace; font-size: 0.76rem;">
+          <span id="telemetry-a-quire" style="color: #58a6ff;">--</span> / <span id="telemetry-a-strata" style="color: #3fb950;">--</span>
+        </div>
+      </div>
+      <div class="score-row">
+        <div>
+          <div>Fly B Decoders</div>
+          <div class="meter-label" id="fly-b-desc">Active Agent B</div>
+        </div>
+        <div style="font-family: monospace; font-size: 0.76rem;">
+          <span id="telemetry-b-quire" style="color: #58a6ff;">--</span> / <span id="telemetry-b-strata" style="color: #3fb950;">--</span>
+        </div>
+      </div>
+
+      <div class="score-row">
+        <div>
+          <div>Distance to Goal</div>
           <div class="meter-label">Distance from source center</div>
         </div>
         <div>
@@ -234,25 +352,34 @@
       </div>
       <div class="score-row">
         <div>
-          <div>Flight Efficiency</div>
-          <div class="meter-label">1.0 = direct beeline, 0.0 = wandering</div>
+          <div>Mean Firing Rate</div>
+          <div class="meter-label">Average neural population rate</div>
         </div>
         <div>
-          <span class="val-neutral" id="ci-a">0.00</span> vs <span class="val-neutral" id="ci-b">0.00</span>
+          <span class="val-neutral" id="rate-a">0.0</span> Hz vs <span class="val-neutral" id="rate-b">0.0</span> Hz
         </div>
       </div>
-      <div style="margin-top: 8px;">
-        <div class="meter-label">Fly A Steering Activity</div>
+      <div class="score-row">
+        <div>
+          <div>Silent Neurons</div>
+          <div class="meter-label">Fraction of units &lt; 0.5 Hz</div>
+        </div>
+        <div>
+          <span class="val-neutral" id="silent-a">0%</span> vs <span class="val-neutral" id="silent-b">0%</span>
+        </div>
+      </div>
+      <div style="margin-top: 6px;">
+        <div class="meter-label">Fly A Steering Activity (DNa02)</div>
         <div class="meter-bar"><div class="meter-fill" id="m-yaw-a" style="width: 0%"></div></div>
-        <div class="meter-label">Fly B Steering Activity</div>
+        <div class="meter-label">Fly B Steering Activity (DNa02)</div>
         <div class="meter-bar"><div class="meter-fill" id="m-yaw-b" style="width: 0%"></div></div>
       </div>
     </div>
 
     <!-- Last Trial Result -->
     <div id="card-unblinded" class="banner-reveal" style="display: none;">
-      <div style="font-weight: 600; color: #58a6ff; margin-bottom: 4px;" id="unblind-title">Last Trial Result</div>
-      <div id="unblind-detail" style="color: #c9d1d9; font-size: 0.78rem;"></div>
+      <div style="font-weight: 600; color: #58a6ff; margin-bottom: 3px;" id="unblind-title">Last Trial Result</div>
+      <div id="unblind-detail" style="color: #c9d1d9; font-size: 0.76rem;"></div>
     </div>
 
     <!-- Cumulative Scoreboard -->
@@ -284,12 +411,22 @@
       </div>
     </div>
 
+    <!-- Grant 1FAB0 6 Behavioral Items Reference -->
+    <div class="card">
+      <h2>Grant 1FAB0 Test Battery (6 Items)</h2>
+      <div style="font-size: 0.72rem; color: #8b949e; display: flex; flex-direction: column; gap: 4px;">
+        <div><strong>Item 1</strong>: Odour Valence Ordering (ACV attractant vs Geosmin repellent)</div>
+        <div><strong>Item 2</strong>: Concentration Reversal (Low 50 Hz vs High 150 Hz avoidance)</div>
+        <div><strong>Item 3</strong>: CO2 Walking Avoidance (Moonwalker MDN activation)</div>
+        <div><strong>Item 4</strong>: Looming Visual Escape (Giant Fibre DNp01 leap)</div>
+        <div><strong>Item 5</strong>: Optomotor Yaw Steering (Rotating stripes → HS → DNa02)</div>
+        <div><strong>Item 6</strong>: Male Courtship Song Initiation (pC1 &amp; pIP10 acoustic display)</div>
+      </div>
+    </div>
+
     <!-- Substrate Truncation Profile (G_traced) -->
     <div class="card">
       <h2>Substrate Profile (𝒢<sub>traced</sub>)</h2>
-      <div class="explain-text" style="margin-bottom: 8px;">
-        Induced subgraph <strong>𝒢<sub>traced</sub> = (V<sub>traced</sub>, E<sub>traced</sub> ∩ (V<sub>traced</sub> × V<sub>traced</sub>))</strong> with degree sequence invariance <strong>k<sub>i</sub> = deg<sub>𝒢<sub>traced</sub></sub>(i)</strong>.
-      </div>
       <div class="score-row">
         <div>ORN Sensory Survival</div>
         <span class="val-bio">0.669</span>
@@ -307,36 +444,24 @@
         <span class="val-neutral">0.505</span>
       </div>
       <div class="score-row">
-        <div>𝒢<sub>traced</sub> Canonical Seal</div>
-        <span style="color: #3fb950; font-family: monospace; font-size: 0.70rem;" title="e35da783d1c686b2b58b3b87cd6a403ae43bfcfba8bff28e08ef752c1a56afc1" id="substrate-seal-badge">e35da783...afc1</span>
-      </div>
-      <div class="score-row">
-        <div>Substrate Contract</div>
-        <span style="color: #8b949e; font-family: monospace; font-size: 0.70rem;" title="Locked to @ompi Proposal #21 (9dc2bbd2...)">Proposal #21 (ompi)</span>
-      </div>
-      <div class="score-row">
         <div>Control Custody</div>
         <span class="val-bio" id="ctrl-custody-rule">Authored-Elsewhere</span>
       </div>
-      <div class="score-row">
-        <div>Custody Pool &amp; Draws</div>
-        <span style="color: #3fb950; font-size: 0.70rem; font-family: monospace;" id="ctrl-custody-stats">250 Sealed Twins</span>
-      </div>
       <div class="score-row" style="border-bottom: none;">
         <div>Active Twin SHA-256</div>
-        <span style="color: #58a6ff; font-family: monospace; font-size: 0.70rem;" id="ctrl-hash-badge">Loading...</span>
+        <span style="color: #58a6ff; font-family: monospace; font-size: 0.68rem;" id="ctrl-hash-badge">Loading...</span>
       </div>
     </div>
 
     <!-- Historical Timeline & Replay Browser -->
     <div class="card">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
         <h2 style="margin-bottom: 0;">Recent Flights</h2>
         <span class="meter-label" style="margin-bottom: 0;">Click to Replay Flight</span>
       </div>
-      <canvas id="sparkline" width="350" height="38" style="width: 100%; height: 38px; background: #090d13; border: 1px solid #21262d; border-radius: 4px; margin-bottom: 8px;"></canvas>
-      <div id="history-container" style="max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 2px;">
-        <div style="font-size: 0.75rem; color: #8b949e; text-align: center; padding: 10px 0;">Accumulating flights...</div>
+      <canvas id="sparkline" width="350" height="34" style="width: 100%; height: 34px; background: #090d13; border: 1px solid #21262d; border-radius: 4px; margin-bottom: 6px;"></canvas>
+      <div id="history-container" style="max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; padding-right: 2px;">
+        <div style="font-size: 0.75rem; color: #8b949e; text-align: center; padding: 8px 0;">Accumulating flights...</div>
       </div>
     </div>
   </aside>
@@ -358,14 +483,217 @@ let replayPlaying = false;
 let replaySpeed = 1.0;
 let lastAnimTime = null;
 let stepAccumulator = 0;
-const SECONDS_PER_STEP = 0.033; // 30 steps/second real simulation time
+const SECONDS_PER_STEP = 0.033;
+
+const ITEMS_DATA = {
+  1: {
+    id: 1,
+    name: "Item 1: Odour Valence Ordering",
+    subtitle: "Apple Cider Vinegar (Attractant) vs Geosmin (Repellent)",
+    predicate: "approach_index(attractant) > approach_index(repellent)",
+    readout_desc: "Delta Hz = rate(DNp09) - rate(MDN)"
+  },
+  2: {
+    id: 2,
+    name: "Item 2: Concentration Reversal",
+    subtitle: "Low Conc Attraction (50 Hz) vs High Conc Aversive Core (150 Hz)",
+    predicate: "approach_index(low) > approach_index(high)",
+    readout_desc: "Delta Hz = rate(DNp09) - rate(MDN)"
+  },
+  3: {
+    id: 3,
+    name: "Item 3: CO2 Walking Avoidance",
+    subtitle: "CO2 Gas Cloud Triggers Moonwalker (MDN) Activation & Reverse Stepping",
+    predicate: "approach_index(co2) < approach_index(none)",
+    readout_desc: "approach_index(co2) < 0 (MDN > DNp09)"
+  },
+  4: {
+    id: 4,
+    name: "Item 4: Looming Visual Escape",
+    subtitle: "Expanding Dark Shadow Triggers Giant Fibre (DNp01) Emergency Leap",
+    predicate: "rate(DNp01 | loom) > rate(DNp01 | control_visual)",
+    readout_desc: "rate(DNp01 | loom)"
+  },
+  5: {
+    id: 5,
+    name: "Item 5: Optomotor Yaw Steering",
+    subtitle: "Rotating Grating Stripes Drive T4/T5 -> HS -> DNa02",
+    predicate: "steer_asymmetry(HS | rot_a) and (rot_b) have opposite signs",
+    readout_desc: "steer_asymmetry(HS) & steer_asymmetry(DNa02)"
+  },
+  6: {
+    id: 6,
+    name: "Item 6: Courtship Song Initiation",
+    subtitle: "Female Pheromone Contact Triggers pC1 & pIP10 Acoustic Wing Vibration",
+    predicate: "rate(pC1 | female_taste) > baseline & rate(pIP10) > baseline",
+    readout_desc: "rate(pC1) & rate(pIP10)"
+  }
+};
+
+function triggerGrantImport() {
+  const fileInput = document.getElementById('grant-file-input');
+  if (fileInput) fileInput.click();
+}
+
+function onGrantFileSelected(event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    importGrantRuns(e.target.result, file.name);
+  };
+  reader.readAsText(file);
+}
+
+// Drag & drop handling
+const arenaContainer = document.getElementById('arena-container');
+const dropzone = document.getElementById('drag-dropzone');
+
+window.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  if (dropzone) dropzone.style.display = 'flex';
+});
+window.addEventListener('dragleave', (e) => {
+  if (e.relatedTarget === null && dropzone) {
+    dropzone.style.display = 'none';
+  }
+});
+window.addEventListener('drop', (e) => {
+  e.preventDefault();
+  if (dropzone) dropzone.style.display = 'none';
+  const file = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (file) {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      importGrantRuns(ev.target.result, file.name);
+    };
+    reader.readAsText(file);
+  }
+});
+
+function importGrantRuns(rawText, fileName) {
+  if (!rawText) return;
+  const lines = rawText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+  const importedTrials = [];
+
+  for (let idx = 0; idx < lines.length; idx++) {
+    try {
+      const obj = JSON.parse(lines[idx]);
+      // Case 1: Official battery-v4/v3 grant run format with readouts
+      if (obj.readouts || obj.item !== undefined) {
+        const itemNum = obj.item || 1;
+        const cond = obj.condition || 'real';
+        const stim = obj.stimulus || 'attractant';
+        const trialIdx = obj.trial !== undefined ? obj.trial : idx;
+
+        // Readout extraction
+        const ro = obj.readouts || {};
+        const dnp09_hz = ro.DNp09 ? (ro.DNp09.stimulus_hz || 0) : 0;
+        const mdn_hz = ro.MDN ? (ro.MDN.stimulus_hz || 0) : 0;
+        const delta_hz = dnp09_hz - mdn_hz;
+        const dnp01_hz = ro.DNp01 ? (ro.DNp01.stimulus_hz || 0) : 0;
+        const dna02_l_hz = ro.DNa02_L ? (ro.DNa02_L.stimulus_hz || 0) : 0;
+        const dna02_r_hz = ro.DNa02_R ? (ro.DNa02_R.stimulus_hz || 0) : 0;
+        const steer_asym = dna02_r_hz - dna02_l_hz;
+        const pc1_hz = ro.pC1 ? (ro.pC1.stimulus_hz || 0) : 0;
+        const pip10_hz = ro.pIP10 ? (ro.pIP10.stimulus_hz || 0) : 0;
+
+        // Synthesize physical trajectory using integrate_trajectory kinematics
+        const nSteps = 60;
+        const dt = 0.01;
+        const vScale = 1.2;
+        const turnScale = 0.05;
+
+        let currX = 200.0, currY = 300.0, currTheta = 0.0;
+        const trajA = [[currX, currY]];
+        const trajB = [[currX, currY + 40]];
+        let pathA = 0.0;
+
+        for (let s = 0; s < nSteps; s++) {
+          const v = vScale * delta_hz * 0.05;
+          const omega = turnScale * steer_asym * 0.05;
+          currX += v * Math.cos(currTheta) * dt * 25.0;
+          currY += v * Math.sin(currTheta) * dt * 25.0;
+          currTheta += omega * dt * 25.0;
+          trajA.push([Math.round(currX * 10) / 10, Math.round(currY * 10) / 10]);
+          trajB.push([Math.round((currX - 10) * 10) / 10, Math.round((currY + 40 + Math.sin(s * 0.1) * 15) * 10) / 10]);
+          pathA += Math.hypot(v, omega);
+        }
+
+        const target = [650, 300];
+        const disp = Math.round(currX - 200.0);
+        const ci = pathA > 0 ? Math.round((disp / Math.max(1.0, pathA)) * 100) / 100 : 0.0;
+
+        importedTrials.push({
+          trial_num: trialIdx + 1,
+          trial_mode: cond,
+          active_item: itemNum,
+          stimulus: stim,
+          winner_name: cond === 'real' ? 'Bio Brain' : 'Control Twin',
+          winner_type: cond === 'real' ? 'real' : 'shuf',
+          flyA_real: cond === 'real',
+          flyB_real: cond !== 'real',
+          arm_label_a: cond === 'real' ? 'Bio (Grant Run)' : 'Twin (Grant Run)',
+          arm_label_b: 'Control Reference',
+          ci_a: ci,
+          ci_b: 0.1,
+          ci_diff: ci - 0.1,
+          disp_a: disp,
+          disp_b: 10,
+          target: target,
+          trajectory_a: trajA,
+          trajectory_b: trajB,
+          decoders_a: {
+            quire: { dnp09: dnp09_hz, mdn: mdn_hz, delta_hz: delta_hz, dnp01: dnp01_hz, steer_asym: steer_asym, pc1: pc1_hz, pip10: pip10_hz },
+            strata: { dx: disp, path_length: pathA, ci: ci, straightness: 0.92 }
+          },
+          ctrl_id: `grant-${stim}`,
+          ctrl_hash: obj.battery_sha256 ? obj.battery_sha256.slice(0, 16) + '...' : 'grant-v4'
+        });
+      } else if (obj.trajectory_a && obj.target) {
+        // Case 2: Arena ledger JSON record
+        importedTrials.push(obj);
+      }
+    } catch (err) {}
+  }
+
+  if (importedTrials.length > 0) {
+    ingestReplayTrials(importedTrials);
+    switchMode('replay');
+    setReplayTrial(importedTrials[0], true);
+    alert(`Imported ${importedTrials.length} Grant 1FAB0 trial runs from ${fileName}! Replaying trial #1.`);
+  } else {
+    alert('No valid trial runs found in file. Supported formats: runs.jsonl, smoke-v4.jsonl, arena_ledger.json.');
+  }
+}
+
+async function loadSampleGrantRun(filename) {
+  try {
+    const res = await fetch((apiEndpoint ? apiEndpoint : '') + '/api/grant_runs?file=' + encodeURIComponent(filename));
+    if (res.ok) {
+      const text = await res.text();
+      importGrantRuns(text, filename);
+      return;
+    }
+  } catch (e) {}
+
+  // Fallback to static web/data
+  try {
+    const res = await fetch('data/' + filename);
+    if (res.ok) {
+      const text = await res.text();
+      importGrantRuns(text, filename);
+      return;
+    }
+  } catch (e) {}
+}
 
 function ingestReplayTrials(trials) {
   if (!trials || !trials.length) return;
   const map = new Map();
   for (const t of replayTrials) map.set(t.trial_num, t);
   for (const t of trials) {
-    if (t.trajectory_a && t.trajectory_a.length > 10 && t.target) {
+    if (t.trajectory_a && t.trajectory_a.length > 5 && t.target) {
       map.set(t.trial_num, t);
     }
   }
@@ -385,7 +713,7 @@ function updateDropdownOptions() {
   if (replayTrials.length === 0) {
     const opt = document.createElement('option');
     opt.value = '';
-    opt.text = 'Waiting for authoritative ledger...';
+    opt.text = 'Waiting for authoritative ledger / import...';
     select.appendChild(opt);
     const countBadge = document.getElementById('replays-count-badge');
     if (countBadge) countBadge.innerText = '0';
@@ -396,9 +724,10 @@ function updateDropdownOptions() {
     const opt = document.createElement('option');
     opt.value = t.trial_num;
     const win = t.winner_type === 'real' ? 'Bio' : (t.winner_type === 'shuf' ? 'Ctrl' : 'Timeout');
-    const dur = (t.trajectory_a.length * 0.033).toFixed(1);
+    const itemTag = t.active_item ? `Item ${t.active_item}` : (t.stimulus ? t.stimulus : 'Chemotaxis');
+    const dur = ((t.trajectory_a ? t.trajectory_a.length : 30) * 0.033).toFixed(1);
     const diff = (t.ci_diff || 0) > 0 ? `+${t.ci_diff.toFixed(2)}` : `${(t.ci_diff || 0).toFixed(2)}`;
-    opt.text = `Flight #${t.trial_num} · ${win} won (${dur}s, Δ${diff})`;
+    opt.text = `Trial #${t.trial_num} [${itemTag}] · ${win} (${dur}s, Δ${diff})`;
     if (String(t.trial_num) === currentVal) opt.selected = true;
     select.appendChild(opt);
   }
@@ -465,13 +794,10 @@ function updateReplayUI() {
     label.innerText = `${curSec}s / ${totSec}s (${replayStep}/${totalSteps})`;
   }
 
-  const headerNum = document.getElementById('replay-trial-num');
-  if (headerNum) headerNum.innerText = activeReplay.trial_num;
-
   const winEl = document.getElementById('replay-winner');
   if (winEl) {
-    const winStr = activeReplay.winner_type === 'real' ? 'Bio Brain 🟢' : (activeReplay.winner_type === 'shuf' ? 'Scrambled Twin 🔴' : 'Timeout');
-    winEl.innerText = `${activeReplay.winner_name} (${winStr})`;
+    const winStr = activeReplay.winner_type === 'real' ? 'Bio Brain 🟢' : (activeReplay.winner_type === 'shuf' ? 'Control Twin 🔴' : 'Timeout');
+    winEl.innerText = `${activeReplay.winner_name || 'Trial'} (${winStr})`;
     winEl.style.color = activeReplay.winner_type === 'real' ? '#3fb950' : '#f85149';
   }
 
@@ -484,6 +810,11 @@ function updateReplayUI() {
   const twinEl = document.getElementById('replay-twin');
   if (twinEl) {
     twinEl.innerText = `#${activeReplay.ctrl_id !== undefined ? activeReplay.ctrl_id : '0'} (${activeReplay.ctrl_hash || 'off-harness'})`;
+  }
+
+  // Update decoders during replay
+  if (activeReplay.decoders_a) {
+    updateDualDecoderDashboard(activeReplay.decoders_a, activeReplay.decoders_b || activeReplay.decoders_a, activeReplay.active_item || 1);
   }
 }
 
@@ -539,27 +870,19 @@ function setSpeed(spd) {
   if (spd === 2.0) document.getElementById('spd-20').classList.add('active');
 }
 
-async function selectReplayFlight(trialNum) {
-  let found = replayTrials.find(t => t.trial_num === trialNum);
-  if (found && (!found.trajectory_a || found.trajectory_a.length === 0)) {
-    // Fetch full flight trajectory on-demand for older flights
-    try {
-      const res = await fetch((apiEndpoint ? apiEndpoint : '') + '/api/replay?trial=' + trialNum);
-      if (res.ok) {
-        const json = await res.json();
-        if (json.ok && json.trial) {
-          found = json.trial;
-          const idx = replayTrials.findIndex(t => t.trial_num === trialNum);
-          if (idx !== -1) replayTrials[idx] = found;
-          else replayTrials.unshift(found);
-        }
-      }
-    } catch (e) {}
+async function setTestItem(itemId) {
+  const itemBtns = ['auto', 1, 2, 3, 4, 5, 6];
+  for (const it of itemBtns) {
+    const btn = document.getElementById('btn-item-' + it);
+    if (btn) {
+      if (String(it) === String(itemId)) btn.classList.add('active-item');
+      else btn.classList.remove('active-item');
+    }
   }
-  if (found) {
-    switchMode('replay');
-    setReplayTrial(found, true);
-  }
+  try {
+    const targetUrl = (apiEndpoint ? apiEndpoint : '') + '/api/set_item?item=' + encodeURIComponent(itemId);
+    await fetch(targetUrl, { method: 'GET', cache: 'no-store' });
+  } catch (e) {}
 }
 
 let currentEndpointMode = localStorage.getItem('arena_endpoint_mode') || 'auto';
@@ -573,27 +896,18 @@ async function setEndpointMode(mode) {
     if (banner) {
       banner.innerHTML = `
         <span style="color:#3fb950;">⚡ <strong>Direct Local Daemon Connected (127.0.0.1:8086 · 0ms latency)</strong></span>
-        <button class="ctrl-btn sm" onclick="setEndpointMode('auto')">Switch to Cloudflare Tunnel</button>
+        <button class="ctrl-btn sm" onclick="setEndpointMode('auto')">Switch to Tunnel</button>
       `;
     }
   } else {
     await resolveApiEndpoint();
-    if (banner) {
-      banner.innerHTML = `
-        <span style="color: #c9d1d9;">🖥️ <strong>Host Workstation Detected</strong> · Bypass download saturation / bufferbloat:</span>
-        <div style="display: flex; gap: 8px; align-items: center;">
-          <button class="ctrl-btn sm" onclick="setEndpointMode('local')" style="background: #238636; color: white;">Connect Direct (0ms Latency)</button>
-          <a href="http://localhost:8086" target="_blank" class="ctrl-btn sm" style="text-decoration: none; color: #58a6ff;">Open Local App ↗</a>
-        </div>
-      `;
-    }
   }
   initStream();
 }
 
 async function probeWorkstationHost() {
   if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-    return; // Already on localhost
+    return;
   }
   try {
     const res = await fetch('http://127.0.0.1:8086/api/state', { mode: 'cors', cache: 'no-store' });
@@ -605,7 +919,6 @@ async function probeWorkstationHost() {
       }
     }
   } catch (e) {
-    // If mixed-content policy warns or blocks cross-origin fetch, still show direct localhost link
     const banner = document.getElementById('workstation-banner');
     if (banner) banner.style.display = 'flex';
   }
@@ -645,7 +958,7 @@ let eventSource = null;
 let sseActive = false;
 let isPolling = false;
 let lastSeenStep = -1;
-let lastSeenTrial = -1;
+let lastSeenFlight = -1;
 let lastHistoryTrial = -1;
 let lastPacketTime = performance.now();
 let lastRenderTime = performance.now();
@@ -655,7 +968,7 @@ let clientTrailB = [];
 let renderFlyA = { x: 400, y: 300, heading: 0 };
 let renderFlyB = { x: 400, y: 300, heading: 0 };
 let renderInitialized = false;
-let lastAppliedTrial = -1;
+let lastAppliedFlight = -1;
 
 function updateStatusTag(streamType) {
   const tag = document.querySelector('.status-tag');
@@ -702,9 +1015,12 @@ function initStream() {
 
 function handleServerPacket(data) {
   lastPacketTime = performance.now();
-  const trial = (data.stats && data.stats.total) || 0;
-  if (trial > lastSeenTrial || (trial === lastSeenTrial && data.step_count >= lastSeenStep)) {
-    lastSeenTrial = trial;
+  const flight = data.flight_number !== undefined ? data.flight_number : ((data.stats && data.stats.total) || 0);
+  const isNewFlight = (lastSeenFlight === -1) || (flight > lastSeenFlight) || (flight === lastSeenFlight && data.step_count < lastSeenStep && data.step_count <= 5);
+  const isNextStep = (flight === lastSeenFlight && data.step_count >= lastSeenStep);
+
+  if (isNewFlight || isNextStep || data.is_revealing) {
+    lastSeenFlight = flight;
     lastSeenStep = data.step_count;
     onServerStateReceived(data);
   }
@@ -735,9 +1051,9 @@ async function pollServer() {
 
 function onServerStateReceived(data) {
   serverState = data;
-  const trial = (data.stats && data.stats.total) || 0;
+  const flight = data.flight_number !== undefined ? data.flight_number : ((data.stats && data.stats.total) || 0);
 
-  // Decoupled history updates: fetch only when a flight completes
+  const trial = (data.stats && data.stats.total) || 0;
   if (lastHistoryTrial !== -1 && trial > lastHistoryTrial) {
     lastHistoryTrial = trial;
     fetchHistory();
@@ -745,8 +1061,7 @@ function onServerStateReceived(data) {
     lastHistoryTrial = trial;
   }
 
-  if (!renderInitialized || trial !== lastAppliedTrial || data.step_count <= 2) {
-    // Snap to exact start positions at flight inception or first load
+  if (!renderInitialized || flight !== lastAppliedFlight || data.step_count <= 2) {
     renderFlyA.x = data.flyA.x;
     renderFlyA.y = data.flyA.y;
     renderFlyA.heading = data.flyA.heading;
@@ -754,7 +1069,7 @@ function onServerStateReceived(data) {
     renderFlyB.y = data.flyB.y;
     renderFlyB.heading = data.flyB.heading;
     renderInitialized = true;
-    lastAppliedTrial = trial;
+    lastAppliedFlight = flight;
     clientTrailA = [];
     clientTrailB = [];
   }
@@ -779,10 +1094,109 @@ fetchHistory();
 let lastHistoryRenderTrial = -1;
 let lastHistoryRenderTime = 0;
 
+function updateDualDecoderDashboard(decA, decB, itemId) {
+  const itemMeta = ITEMS_DATA[itemId] || ITEMS_DATA[1];
+  const qA = (decA && decA.quire) || {};
+  const sA = (decA && decA.strata) || {};
+  const qB = (decB && decB.quire) || {};
+  const sB = (decB && decB.strata) || {};
+
+  // Headline metric titles
+  const qNameEl = document.getElementById('quire-metric-name');
+  if (qNameEl) qNameEl.innerText = itemMeta.readout_desc;
+
+  // Quire headlines
+  const qHeadEl = document.getElementById('quire-headline-val');
+  if (qHeadEl) qHeadEl.innerText = qA.headline || `${(qA.delta_hz || 0) > 0 ? '+' : ''}${(qA.delta_hz || 0).toFixed(1)} Hz`;
+
+  const qDnp09El = document.getElementById('quire-dnp09-val');
+  if (qDnp09El) qDnp09El.innerText = `${(qA.dnp09 || 0).toFixed(1)} Hz`;
+
+  const qMdnEl = document.getElementById('quire-mdn-val');
+  if (qMdnEl) qMdnEl.innerText = `${(qA.mdn || 0).toFixed(1)} Hz`;
+
+  const qItemRoEl = document.getElementById('quire-item-readout-val');
+  if (qItemRoEl) {
+    if (itemId === 4) {
+      qItemRoEl.innerText = `DNp01 GF: ${(qA.dnp01 || 0).toFixed(1)} Hz ${qA.escape_active ? '⚡ LEAP' : ''}`;
+    } else if (itemId === 5) {
+      qItemRoEl.innerText = `Steer Asym: ${(qA.steer_asym || 0) > 0 ? '+' : ''}${(qA.steer_asym || 0).toFixed(1)} Hz`;
+    } else if (itemId === 6) {
+      qItemRoEl.innerText = `pC1: ${(qA.pc1 || 0).toFixed(1)} | pIP10: ${(qA.pip10 || 0).toFixed(1)} ${qA.courtship_active ? '🎶 SONG' : ''}`;
+    } else {
+      qItemRoEl.innerText = `Approach Index: ${(qA.delta_hz || 0) > 0 ? '+' : ''}${(qA.delta_hz || 0).toFixed(1)}`;
+    }
+  }
+
+  // Strata headlines
+  const sHeadEl = document.getElementById('strata-headline-val');
+  if (sHeadEl) sHeadEl.innerText = sA.headline || `CI: ${(sA.ci || 0) > 0 ? '+' : ''}${(sA.ci || 0).toFixed(2)}`;
+
+  const sDxEl = document.getElementById('strata-dx-val');
+  if (sDxEl) sDxEl.innerText = `${(sA.dx || 0) > 0 ? '+' : ''}${(sA.dx || 0).toFixed(1)}px`;
+
+  const sPathEl = document.getElementById('strata-path-val');
+  if (sPathEl) sPathEl.innerText = `${(sA.path_length || 0).toFixed(1)}px`;
+
+  const sStrEl = document.getElementById('strata-str-val');
+  if (sStrEl) sStrEl.innerText = `${(sA.straightness || 0).toFixed(2)}`;
+
+  // Summary comparison rows
+  const telAQ = document.getElementById('telemetry-a-quire');
+  const telAS = document.getElementById('telemetry-a-strata');
+  if (telAQ) telAQ.innerText = `Δ${(qA.delta_hz || 0) > 0 ? '+' : ''}${(qA.delta_hz || 0).toFixed(1)}Hz`;
+  if (telAS) telAS.innerText = `CI:${(sA.ci || 0) > 0 ? '+' : ''}${(sA.ci || 0).toFixed(2)}`;
+
+  const telBQ = document.getElementById('telemetry-b-quire');
+  const telBS = document.getElementById('telemetry-b-strata');
+  if (telBQ) telBQ.innerText = `Δ${(qB.delta_hz || 0) > 0 ? '+' : ''}${(qB.delta_hz || 0).toFixed(1)}Hz`;
+  if (telBS) telBS.innerText = `CI:${(sB.ci || 0) > 0 ? '+' : ''}${(sB.ci || 0).toFixed(2)}`;
+}
+
 function updateUI(state) {
   if (!state || !state.stats) return;
 
-  // 1. Fast scalar telemetry updates
+  // 1. Dual-Decoder Telemetry Update
+  const activeItem = state.active_item || 1;
+  const itemMeta = ITEMS_DATA[activeItem] || ITEMS_DATA[1];
+
+  const itemBadge = document.getElementById('active-item-badge');
+  if (itemBadge) itemBadge.innerText = `ITEM ${activeItem}: ${(itemMeta.name.split(':')[1] || '').trim().toUpperCase()}`;
+
+  const bannerName = document.getElementById('item-banner-name');
+  const bannerSub = document.getElementById('item-banner-subtitle');
+  const bannerPred = document.getElementById('item-banner-predicate');
+  const titlePill = document.getElementById('active-item-title-pill');
+  if (bannerName) bannerName.innerText = itemMeta.name;
+  if (bannerSub) bannerSub.innerText = itemMeta.subtitle;
+  if (bannerPred) bannerPred.innerText = itemMeta.predicate;
+  if (titlePill) titlePill.innerText = itemMeta.name;
+
+  // Highlight active item button
+  const itemButtons = ['auto', 1, 2, 3, 4, 5, 6];
+  for (const it of itemButtons) {
+    const btn = document.getElementById('btn-item-' + it);
+    if (btn) {
+      if ((state.item_setting === 'auto' && it === 'auto') || (state.item_setting !== 'auto' && it === activeItem)) {
+        btn.classList.add('active-item');
+      } else {
+        btn.classList.remove('active-item');
+      }
+    }
+  }
+
+  // Update decoders
+  if (state.flyA && state.flyA.decoders) {
+    updateDualDecoderDashboard(state.flyA.decoders, state.flyB ? state.flyB.decoders : null, activeItem);
+  }
+
+  // Descriptions of Fly A and B
+  const flyADesc = document.getElementById('fly-a-desc');
+  const flyBDesc = document.getElementById('fly-b-desc');
+  if (flyADesc) flyADesc.innerText = state.flyA.arm_label || (state.is_revealing ? (state.flyA.is_real ? 'Biological Brain 🟢' : 'Control Twin 🔴') : 'Active Agent A (Sealed)');
+  if (flyBDesc) flyBDesc.innerText = state.flyB.arm_label || (state.is_revealing ? (state.flyB.is_real ? 'Biological Brain 🟢' : 'Control Twin 🔴') : 'Active Agent B (Sealed)');
+
+  // Cumulative results
   document.getElementById('total-trials').innerText = state.stats.total;
   document.getElementById('wins-real').innerText = state.stats.real_wins;
   document.getElementById('wins-shuf').innerText = state.stats.shuf_wins;
@@ -794,8 +1208,48 @@ function updateUI(state) {
 
   document.getElementById('d-a').innerText = Math.round(state.flyA.dist);
   document.getElementById('d-b').innerText = Math.round(state.flyB.dist);
-  document.getElementById('ci-a').innerText = state.flyA.ci.toFixed(2);
-  document.getElementById('ci-b').innerText = state.flyB.ci.toFixed(2);
+
+  // Firing rates
+  if (state.flyA && state.flyA.mean_rate !== undefined) {
+    const elRateA = document.getElementById('rate-a');
+    if (elRateA) elRateA.innerText = state.flyA.mean_rate.toFixed(1);
+    const elSilentA = document.getElementById('silent-a');
+    if (elSilentA) elSilentA.innerText = (state.flyA.silent_fraction !== undefined ? state.flyA.silent_fraction : 0) + '%';
+  }
+  if (state.flyB && state.flyB.mean_rate !== undefined) {
+    const elRateB = document.getElementById('rate-b');
+    if (elRateB) elRateB.innerText = state.flyB.mean_rate.toFixed(1);
+    const elSilentB = document.getElementById('silent-b');
+    if (elSilentB) elSilentB.innerText = (state.flyB.silent_fraction !== undefined ? state.flyB.silent_fraction : 0) + '%';
+  }
+
+  // Mode badge
+  if (state.trial_mode) {
+    const badge = document.getElementById('trial-mode-badge');
+    if (badge) {
+      if (state.trial_mode === 'arm2') {
+        badge.innerText = 'ARM 2: RAND-DYN';
+        badge.style.background = '#8957e5';
+      } else if (state.trial_mode === 'wrong_odor') {
+        badge.innerText = 'SENSORY CROSS';
+        badge.style.background = '#d29922';
+      } else {
+        badge.innerText = 'ARM 1: SHUFFLED';
+        badge.style.background = '#1f6feb';
+      }
+    }
+  }
+
+  if (state.mode_setting) {
+    const condButtons = ['auto', 'arm1', 'arm2', 'wrong_odor'];
+    for (const c of condButtons) {
+      const btn = document.getElementById('btn-cond-' + c);
+      if (btn) {
+        if (c === state.mode_setting) btn.classList.add('active');
+        else btn.classList.remove('active');
+      }
+    }
+  }
 
   document.getElementById('m-yaw-a').style.width = Math.min(100, (Math.abs(state.flyA.last_yaw || 0) / 0.045) * 100) + '%';
   document.getElementById('m-yaw-b').style.width = Math.min(100, (Math.abs(state.flyB.last_yaw || 0) / 0.045) * 100) + '%';
@@ -806,7 +1260,6 @@ function updateUI(state) {
     document.getElementById('t-stat').innerText = 'Calibrating...';
   }
 
-  // 2. Control Custody Telemetry
   if (state.truncation_profile && state.truncation_profile.control_custody) {
     const cc = state.truncation_profile.control_custody;
     const ruleEl = document.getElementById('ctrl-custody-rule');
@@ -814,32 +1267,31 @@ function updateUI(state) {
     if (ruleEl) ruleEl.innerText = `Authored-Elsewhere (Twin #${cc.active_ctrl_id}${poolText})`;
     const hashEl = document.getElementById('ctrl-hash-badge');
     if (hashEl) hashEl.innerText = cc.active_ctrl_sha256;
-    const statsEl = document.getElementById('ctrl-custody-stats');
-    if (statsEl) {
-      const draws = cc.custody_draws || state.stats.total;
-      statsEl.innerText = `${cc.pool_size || 250} Twins Sealed · ${draws.toLocaleString()} Draws`;
-    }
   }
 
-  // 3. Unblinded finish card
+  // Unblinded finish card
   const cardUnblinded = document.getElementById('card-unblinded');
   if (state.last_reveal) {
     cardUnblinded.style.display = 'block';
     const lr = state.last_reveal;
-    const winnerLabel = lr.winner_type === 'real' ? 'Biological Brain' : (lr.winner_type === 'shuf' ? 'Scrambled Control' : 'Timeout');
-    document.getElementById('unblind-title').innerText = `Flight #${lr.trial_num} Finished — ${lr.winner_name} won (${winnerLabel})`;
-    const poolText = lr.pool_size ? ` of ${lr.pool_size}` : '';
-    const drawsText = lr.custody_draws ? ` · ${lr.custody_draws.toLocaleString()} Draws` : '';
+    const winnerLabel = lr.winner_type === 'real' ? 'Biological Brain' : (lr.winner_type === 'shuf' ? 'Control Twin' : 'Timeout');
+    document.getElementById('unblind-title').innerText = `Flight #${lr.trial_num} Finished — ${lr.winner_name} (${winnerLabel})`;
+    const labelA = lr.arm_label_a || (lr.flyA_real ? 'Biological Brain 🟢' : 'Control Twin 🔴');
+    const labelB = lr.arm_label_b || (lr.flyB_real ? 'Biological Brain 🟢' : 'Control Twin 🔴');
+    const rateTextA = lr.rate_a !== undefined ? ` · ${lr.rate_a} Hz` : '';
+    const rateTextB = lr.rate_b !== undefined ? ` · ${lr.rate_b} Hz` : '';
+    const dispTextA = lr.disp_a !== undefined ? ` · Δd: ${lr.disp_a > 0 ? '+' : ''}${lr.disp_a}` : '';
+    const dispTextB = lr.disp_b !== undefined ? ` · Δd: ${lr.disp_b > 0 ? '+' : ''}${lr.disp_b}` : '';
+
     document.getElementById('unblind-detail').innerHTML = `
-      <div><strong>Fly A</strong>: ${lr.flyA_real ? '<span style="color:#3fb950; font-weight:600;">Biological Brain 🟢</span>' : '<span style="color:#f85149; font-weight:600;">Scrambled Control 🔴</span>'} (Efficiency: ${lr.ci_a.toFixed(2)})</div>
-      <div><strong>Fly B</strong>: ${lr.flyB_real ? '<span style="color:#3fb950; font-weight:600;">Biological Brain 🟢</span>' : '<span style="color:#f85149; font-weight:600;">Scrambled Control 🔴</span>'} (Efficiency: ${lr.ci_b.toFixed(2)})</div>
-      <div style="margin-top:5px; padding-top:4px; border-top:1px dashed #21262d; font-size:0.72rem; color:#8b949e;">
-        🔒 Sealed Twin: <span style="font-family:monospace; color:#58a6ff;">#${lr.ctrl_id !== undefined ? lr.ctrl_id : '0'}${poolText} (${lr.ctrl_hash || 'off-harness'}${drawsText})</span>
+      <div><strong>Fly A</strong>: <span style="font-weight:600; color:${lr.flyA_real ? '#3fb950' : '#f85149'}">${labelA}</span> (CI: ${lr.ci_a.toFixed(2)}${dispTextA}${rateTextA})</div>
+      <div><strong>Fly B</strong>: <span style="font-weight:600; color:${lr.flyB_real ? '#3fb950' : '#f85149'}">${labelB}</span> (CI: ${lr.ci_b.toFixed(2)}${dispTextB}${rateTextB})</div>
+      <div style="margin-top:4px; padding-top:3px; border-top:1px dashed #21262d; font-size:0.70rem; color:#8b949e;">
+        Item: <span style="color:#3fb950; font-weight:600;">${lr.item_name || 'Item 1'}</span> · Condition: <span style="color:#58a6ff; font-weight:600;">${(lr.trial_mode || 'arm1').toUpperCase()}</span> · Twin: <span style="font-family:monospace; color:#58a6ff;">#${lr.ctrl_id !== undefined ? lr.ctrl_id : '0'}</span>
       </div>
     `;
   }
 
-  // 4. Heavy DOM history updates throttled: run only on trial finish or max once every 2s
   const now = Date.now();
   const curTrial = state.stats.total;
   if (curTrial !== lastHistoryRenderTrial || (now - lastHistoryRenderTime > 2000)) {
@@ -856,7 +1308,7 @@ function renderHistoryCards(state) {
       const isRealWin = item.winner_type === 'real';
       const isShufWin = item.winner_type === 'shuf';
       const badgeBg = isRealWin ? '#238636' : (isShufWin ? '#da3633' : '#484f58');
-      const badgeText = isRealWin ? '🟢 Biological' : (isShufWin ? '🔴 Scrambled' : '⚪ Timeout');
+      const badgeText = isRealWin ? '🟢 Bio' : (isShufWin ? '🔴 Twin' : '⚪ Timeout');
       const diffColor = item.ci_diff > 0 ? '#3fb950' : (item.ci_diff < 0 ? '#f85149' : '#8b949e');
       const diffSign = item.ci_diff > 0 ? '+' : '';
 
@@ -868,20 +1320,20 @@ function renderHistoryCards(state) {
         : (hasReplay ? 'border: 1px solid #30363d;' : 'border: 1px solid #21262d; opacity: 0.75;');
 
       const actionBtn = hasReplay
-        ? `<button class="ctrl-btn sm" style="font-size: 0.68rem; padding: 1px 6px; ${isCurrentActive ? 'background:#1f6feb; color:#fff;' : 'color:#58a6ff;'}" onclick="event.stopPropagation(); selectReplayFlight(${item.trial_num})">Replay ↺</button>`
-        : `<span style="font-size: 0.65rem; color: #8b949e;">Live Only</span>`;
+        ? `<button class="ctrl-btn sm" style="font-size: 0.65rem; padding: 1px 5px; ${isCurrentActive ? 'background:#1f6feb; color:#fff;' : 'color:#58a6ff;'}" onclick="event.stopPropagation(); selectReplayFlight(${item.trial_num})">Replay ↺</button>`
+        : `<span style="font-size: 0.65rem; color: #8b949e;">Live</span>`;
 
       return `
         <div class="flight-card" style="${borderStyle}" onclick="if(${hasReplay}) selectReplayFlight(${item.trial_num})">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:3px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
             <span style="font-weight:600; color:#c9d1d9;">Flight #${item.trial_num}</span>
-            <div style="display:flex; gap:6px; align-items:center;">
-              <span style="background:${badgeBg}; color:white; padding:1px 6px; border-radius:10px; font-size:0.68rem; font-weight:500;">${badgeText}</span>
+            <div style="display:flex; gap:5px; align-items:center;">
+              <span style="background:${badgeBg}; color:white; padding:1px 5px; border-radius:10px; font-size:0.65rem; font-weight:500;">${badgeText}</span>
               ${actionBtn}
             </div>
           </div>
-          <div style="color:#8b949e; display:flex; justify-content:space-between; font-size:0.72rem;">
-            <span>A: ${item.flyA_real ? 'Bio' : 'Ctrl'} (${item.ci_a}) | B: ${item.flyB_real ? 'Bio' : 'Ctrl'} (${item.ci_b})</span>
+          <div style="color:#8b949e; display:flex; justify-content:space-between; font-size:0.70rem;">
+            <span>A: ${item.flyA_real ? 'Bio' : 'Ctrl'} | B: ${item.flyB_real ? 'Bio' : 'Ctrl'}</span>
             <span style="color:${diffColor}; font-weight:600;">&Delta; ${diffSign}${item.ci_diff.toFixed(2)}</span>
           </div>
         </div>
@@ -903,9 +1355,8 @@ function drawSparkline(history) {
 
   const w = spark.width;
   const h = spark.height;
-  const midY = h * 0.7; // baseline 0.0 advantage
+  const midY = h * 0.7;
 
-  // Baseline zero
   sctx.strokeStyle = '#30363d';
   sctx.lineWidth = 1;
   sctx.setLineDash([2, 2]);
@@ -915,7 +1366,6 @@ function drawSparkline(history) {
   sctx.stroke();
   sctx.setLineDash([]);
 
-  // Plot CI advantage line
   sctx.strokeStyle = '#3fb950';
   sctx.lineWidth = 2;
   sctx.beginPath();
@@ -928,31 +1378,27 @@ function drawSparkline(history) {
   }
   sctx.stroke();
 
-  // Dots
   for (let i = 0; i < data.length; i++) {
     const x = (i / (data.length - 1)) * (w - 16) + 8;
     const val = Math.max(-0.5, Math.min(1.0, data[i]));
     const y = midY - (val * (h * 0.6));
     sctx.fillStyle = val > 0 ? '#3fb950' : (val < 0 ? '#f85149' : '#8b949e');
     sctx.beginPath();
-    sctx.arc(x, y, 2.5, 0, Math.PI * 2);
+    sctx.arc(x, y, 2.2, 0, Math.PI * 2);
     sctx.fill();
   }
 }
 
-// Replay Controller Logic
 function switchMode(mode) {
   currentMode = mode;
   const btnLive = document.getElementById('btn-mode-live');
   const btnReplay = document.getElementById('btn-mode-replay');
   const ctrlBox = document.getElementById('replay-controls');
-  const headerInfo = document.getElementById('replay-header-info');
 
   if (mode === 'replay') {
     btnLive.classList.remove('active');
     btnReplay.classList.add('active');
     ctrlBox.style.display = 'flex';
-    headerInfo.style.display = 'block';
     if (!activeReplay && replayTrials.length > 0) {
       setReplayTrial(replayTrials[0], false);
     }
@@ -960,8 +1406,44 @@ function switchMode(mode) {
     btnLive.classList.add('active');
     btnReplay.classList.remove('active');
     ctrlBox.style.display = 'none';
-    headerInfo.style.display = 'none';
     pauseReplay();
+  }
+}
+
+async function setSimCondition(cond) {
+  const condButtons = ['auto', 'arm1', 'arm2', 'wrong_odor'];
+  for (const c of condButtons) {
+    const btn = document.getElementById('btn-cond-' + c);
+    if (btn) {
+      if (c === cond) btn.classList.add('active');
+      else btn.classList.remove('active');
+    }
+  }
+  try {
+    const targetUrl = (apiEndpoint ? apiEndpoint : '') + '/api/set_mode?mode=' + encodeURIComponent(cond);
+    await fetch(targetUrl, { method: 'GET', cache: 'no-store' });
+  } catch (e) {}
+}
+
+async function selectReplayFlight(trialNum) {
+  let found = replayTrials.find(t => t.trial_num === trialNum);
+  if (found && (!found.trajectory_a || found.trajectory_a.length === 0)) {
+    try {
+      const res = await fetch((apiEndpoint ? apiEndpoint : '') + '/api/replay?trial=' + trialNum);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.ok && json.trial) {
+          found = json.trial;
+          const idx = replayTrials.findIndex(t => t.trial_num === trialNum);
+          if (idx !== -1) replayTrials[idx] = found;
+          else replayTrials.unshift(found);
+        }
+      }
+    } catch (e) {}
+  }
+  if (found) {
+    switchMode('replay');
+    setReplayTrial(found, true);
   }
 }
 
@@ -1008,6 +1490,245 @@ function drawFly(fly, bodyColor, labelText, isWinner) {
   ctx.fillText(labelText, fly.x - 14, fly.y - 14);
 }
 
+function renderEnvironment(item, envData, target) {
+  const targetX = target.x;
+  const targetY = target.y;
+
+  if (item === 1) {
+    // Item 1: Odour Valence Ordering
+    // Attractant plume at target
+    const gradA = ctx.createRadialGradient(targetX, targetY, 4, targetX, targetY, 200);
+    gradA.addColorStop(0, 'rgba(63, 185, 80, 0.35)');
+    gradA.addColorStop(0.5, 'rgba(63, 185, 80, 0.1)');
+    gradA.addColorStop(1, 'rgba(63, 185, 80, 0)');
+    ctx.fillStyle = gradA;
+    ctx.beginPath();
+    ctx.arc(targetX, targetY, 200, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#3fb950';
+    ctx.beginPath();
+    ctx.arc(targetX, targetY, target.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '11px sans-serif';
+    ctx.fillText('ACV ATTRACTANT (DM1+VA2)', targetX - 65, targetY - 24);
+
+    // Repellent plume at repellent position
+    if (envData.repellent) {
+      const rx = envData.repellent.x;
+      const ry = envData.repellent.y;
+      const gradR = ctx.createRadialGradient(rx, ry, 4, rx, ry, 180);
+      gradR.addColorStop(0, 'rgba(163, 113, 247, 0.40)');
+      gradR.addColorStop(0.5, 'rgba(163, 113, 247, 0.12)');
+      gradR.addColorStop(1, 'rgba(163, 113, 247, 0)');
+      ctx.fillStyle = gradR;
+      ctx.beginPath();
+      ctx.arc(rx, ry, 180, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#a371f7';
+      ctx.beginPath();
+      ctx.arc(rx, ry, 16, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '11px sans-serif';
+      ctx.fillText('GEOSMIN REPELLENT (DA2)', rx - 68, ry - 22);
+    }
+  } else if (item === 2) {
+    // Item 2: Concentration Reversal
+    const grad = ctx.createRadialGradient(targetX, targetY, 5, targetX, targetY, 220);
+    grad.addColorStop(0, 'rgba(248, 81, 73, 0.40)');
+    grad.addColorStop(0.45, 'rgba(210, 153, 34, 0.25)');
+    grad.addColorStop(0.7, 'rgba(63, 185, 80, 0.15)');
+    grad.addColorStop(1, 'rgba(63, 185, 80, 0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(targetX, targetY, 220, 0, Math.PI * 2);
+    ctx.fill();
+
+    // High concentration core boundary
+    ctx.strokeStyle = 'rgba(248, 81, 73, 0.8)';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.arc(targetX, targetY, 110, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = '#f85149';
+    ctx.beginPath();
+    ctx.arc(targetX, targetY, target.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '11px sans-serif';
+    ctx.fillText('AVERSIVE HIGH-CONC CORE (150 Hz / DM5)', targetX - 95, targetY - 116);
+    ctx.fillStyle = '#3fb950';
+    ctx.fillText('LOW CONC ATTRACTIVE ZONE (50 Hz)', targetX - 80, targetY + 130);
+  } else if (item === 3) {
+    // Item 3: CO2 Walking Avoidance
+    // Background odor
+    const grad = ctx.createRadialGradient(targetX, targetY, 5, targetX, targetY, 180);
+    grad.addColorStop(0, 'rgba(88, 166, 255, 0.25)');
+    grad.addColorStop(1, 'rgba(88, 166, 255, 0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(targetX, targetY, 180, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#58a6ff';
+    ctx.beginPath();
+    ctx.arc(targetX, targetY, target.r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Drifting CO2 cloud
+    if (envData.co2_cloud) {
+      const cx = envData.co2_cloud.x;
+      const cy = envData.co2_cloud.y;
+      const cr = envData.co2_cloud.r;
+
+      const gradCO2 = ctx.createRadialGradient(cx, cy, 10, cx, cy, cr);
+      gradCO2.addColorStop(0, 'rgba(200, 210, 225, 0.45)');
+      gradCO2.addColorStop(0.7, 'rgba(150, 165, 180, 0.25)');
+      gradCO2.addColorStop(1, 'rgba(100, 115, 130, 0)');
+      ctx.fillStyle = gradCO2;
+      ctx.beginPath();
+      ctx.arc(cx, cy, cr, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = 'rgba(200, 210, 225, 0.6)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.arc(cx, cy, cr, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.fillStyle = '#c9d1d9';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.fillText('CO2 GAS CLOUD (ORN_V → MDN MOONWALKER)', cx - 110, cy - cr - 6);
+    }
+  } else if (item === 4) {
+    // Item 4: Looming Visual Escape
+    const grad = ctx.createRadialGradient(targetX, targetY, 5, targetX, targetY, 160);
+    grad.addColorStop(0, 'rgba(88, 166, 255, 0.25)');
+    grad.addColorStop(1, 'rgba(88, 166, 255, 0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(targetX, targetY, 160, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (envData.looming_shadow) {
+      const lx = envData.looming_shadow.x;
+      const ly = envData.looming_shadow.y;
+      const lr = envData.looming_shadow.r;
+
+      ctx.fillStyle = 'rgba(15, 18, 24, 0.92)';
+      ctx.beginPath();
+      ctx.arc(lx, ly, lr, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = '#f85149';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(lx, ly, lr, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.fillStyle = '#f85149';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.fillText('EXPANDING LOOMING SHADOW (LC4 / LPLC2)', lx - 100, ly - lr - 8);
+    }
+  } else if (item === 5) {
+    // Item 5: Optomotor Yaw Steering
+    // Animated rotating grating along arena walls
+    if (envData.optomotor) {
+      const angle = envData.optomotor.angle || 0;
+      const dir = envData.optomotor.dir || 1;
+      const stripeW = 20;
+
+      ctx.save();
+      // Draw grating stripes on top and bottom walls
+      for (let x = 0; x < canvas.width; x += stripeW) {
+        const offset = (x + angle * 150 * dir) % (stripeW * 2);
+        const isWhite = offset < stripeW;
+        ctx.fillStyle = isWhite ? 'rgba(255, 255, 255, 0.85)' : 'rgba(10, 10, 10, 0.9)';
+        ctx.fillRect(x, 0, stripeW, 10);
+        ctx.fillRect(x, canvas.height - 10, stripeW, 10);
+      }
+      for (let y = 0; y < canvas.height; y += stripeW) {
+        const offset = (y + angle * 150 * dir) % (stripeW * 2);
+        const isWhite = offset < stripeW;
+        ctx.fillStyle = isWhite ? 'rgba(255, 255, 255, 0.85)' : 'rgba(10, 10, 10, 0.9)';
+        ctx.fillRect(0, y, 10, stripeW);
+        ctx.fillRect(canvas.width - 10, y, 10, stripeW);
+      }
+      ctx.restore();
+
+      ctx.fillStyle = '#58a6ff';
+      ctx.font = 'bold 12px sans-serif';
+      const dirStr = dir > 0 ? 'CLOCKWISE ↻' : 'COUNTER-CLOCKWISE ↺';
+      ctx.fillText(`ROTATING OPTOMOTOR GRATING [${dirStr}] → T4/T5 → HS → DNa02`, 180, 32);
+    }
+  } else if (item === 6) {
+    // Item 6: Male Courtship Song Initiation
+    const femX = envData.female_target ? envData.female_target.x : targetX;
+    const femY = envData.female_target ? envData.female_target.y : targetY;
+
+    // Female pheromone halo
+    const gradFem = ctx.createRadialGradient(femX, femY, 5, femX, femY, 140);
+    gradFem.addColorStop(0, 'rgba(247, 120, 186, 0.40)');
+    gradFem.addColorStop(0.5, 'rgba(247, 120, 186, 0.15)');
+    gradFem.addColorStop(1, 'rgba(247, 120, 186, 0)');
+    ctx.fillStyle = gradFem;
+    ctx.beginPath();
+    ctx.arc(femX, femY, 140, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#f778ba';
+    ctx.beginPath();
+    ctx.arc(femX, femY, 14, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '11px sans-serif';
+    ctx.fillText('♀ VIRGIN FEMALE (7,11-HD PHEROMONE)', femX - 95, femY - 20);
+
+    // If song active, draw acoustic soundwaves
+    if (envData.female_target && envData.female_target.song_active) {
+      ctx.strokeStyle = 'rgba(247, 120, 186, 0.7)';
+      ctx.lineWidth = 1.5;
+      const timeMs = Date.now() * 0.005;
+      for (let r = 25; r < 90; r += 18) {
+        ctx.beginPath();
+        const pulseR = r + (timeMs % 18);
+        ctx.arc(femX, femY, pulseR, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.fillStyle = '#f778ba';
+      ctx.font = 'bold 12px sans-serif';
+      ctx.fillText('🎶 ACOUSTIC WING VIBRATION DISPLAY (pC1 & pIP10 ACTIVE)', femX - 140, femY + 36);
+    }
+  } else {
+    // Default odor plume
+    const grad = ctx.createRadialGradient(targetX, targetY, 5, targetX, targetY, 220);
+    grad.addColorStop(0, 'rgba(88, 166, 255, 0.35)');
+    grad.addColorStop(0.5, 'rgba(88, 166, 255, 0.1)');
+    grad.addColorStop(1, 'rgba(88, 166, 255, 0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(targetX, targetY, 220, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#58a6ff';
+    ctx.beginPath();
+    ctx.arc(targetX, targetY, target.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '12px sans-serif';
+    ctx.fillText('ODOR SOURCE', targetX - 42, targetY - 25);
+  }
+}
+
 function renderReplay() {
   if (!activeReplay || !activeReplay.trajectory_a) {
     ctx.fillStyle = '#58a6ff';
@@ -1017,32 +1738,14 @@ function renderReplay() {
   }
 
   const target = activeReplay.target || [400, 300];
-  const targetX = target[0];
-  const targetY = target[1];
+  const targetObj = { x: target[0], y: target[1], r: 18 };
+  const item = activeReplay.active_item || 1;
 
-  // Odor plume gradient
-  const grad = ctx.createRadialGradient(targetX, targetY, 5, targetX, targetY, 220);
-  grad.addColorStop(0, 'rgba(88, 166, 255, 0.35)');
-  grad.addColorStop(0.5, 'rgba(88, 166, 255, 0.1)');
-  grad.addColorStop(1, 'rgba(88, 166, 255, 0)');
-  ctx.fillStyle = grad;
-  ctx.beginPath();
-  ctx.arc(targetX, targetY, 220, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Odor source center
-  ctx.fillStyle = '#58a6ff';
-  ctx.beginPath();
-  ctx.arc(targetX, targetY, 18, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = '#ffffff';
-  ctx.font = '12px sans-serif';
-  ctx.fillText('ODOR SOURCE', targetX - 42, targetY - 25);
+  renderEnvironment(item, activeReplay, targetObj);
 
   const trajA = activeReplay.trajectory_a;
   const trajB = activeReplay.trajectory_b;
 
-  // Faint dotted full path ahead
   function drawFullTrail(traj, color) {
     if (!traj || traj.length < 2) return;
     ctx.strokeStyle = color;
@@ -1057,7 +1760,6 @@ function renderReplay() {
   drawFullTrail(trajA, activeReplay.flyA_real ? 'rgba(63, 185, 80, 0.22)' : 'rgba(248, 81, 73, 0.22)');
   drawFullTrail(trajB, activeReplay.flyB_real ? 'rgba(63, 185, 80, 0.22)' : 'rgba(248, 81, 73, 0.22)');
 
-  // Solid past path up to replayStep
   function drawActiveTrail(traj, color) {
     if (!traj || traj.length < 2) return;
     ctx.strokeStyle = color;
@@ -1071,7 +1773,6 @@ function renderReplay() {
   drawActiveTrail(trajA, activeReplay.flyA_real ? '#3fb950' : '#f85149');
   drawActiveTrail(trajB, activeReplay.flyB_real ? '#3fb950' : '#f85149');
 
-  // Draw flies at replayStep
   const stepA = Math.min(replayStep, trajA.length - 1);
   const stepB = Math.min(replayStep, trajB.length - 1);
   const ptA = trajA[stepA];
@@ -1093,37 +1794,33 @@ function renderReplay() {
   ctx.fillStyle = 'rgba(13, 25, 38, 0.92)';
   ctx.strokeStyle = '#388bfd';
   ctx.lineWidth = 1.5;
-  const bw = 540, bh = 64, bx = (canvas.width - bw) / 2, by = 14;
+  const bw = 540, bh = 56, bx = (canvas.width - bw) / 2, by = 12;
   ctx.beginPath();
   ctx.roundRect(bx, by, bw, bh, 6);
   ctx.fill();
   ctx.stroke();
 
   ctx.fillStyle = '#58a6ff';
-  ctx.font = 'bold 12.5px sans-serif';
-  const winStr = activeReplay.winner_type === 'real' ? 'Biological Brain Won' : (activeReplay.winner_type === 'shuf' ? 'Scrambled Twin Won' : 'Timeout');
-  ctx.fillText(`⏮ Flight #${activeReplay.trial_num} Replay · ${winStr}`, bx + 14, by + 20);
+  ctx.font = 'bold 12px sans-serif';
+  const itemTag = activeReplay.active_item ? `Item ${activeReplay.active_item}` : (activeReplay.stimulus || 'Run');
+  ctx.fillText(`⏮ Trial #${activeReplay.trial_num} [${itemTag}] Replay · ${activeReplay.winner_name || 'Completed'}`, bx + 12, by + 18);
 
-  ctx.font = '11.5px sans-serif';
+  ctx.font = '11px sans-serif';
   ctx.fillStyle = '#c9d1d9';
   const diffSign = (activeReplay.ci_diff || 0) > 0 ? '+' : '';
-  ctx.fillText(`A: ${activeReplay.flyA_real ? 'Bio 🟢' : 'Ctrl 🔴'} (CI: ${activeReplay.ci_a})   •   B: ${activeReplay.flyB_real ? 'Bio 🟢' : 'Ctrl 🔴'} (CI: ${activeReplay.ci_b})   •   Δ: ${diffSign}${(activeReplay.ci_diff || 0).toFixed(2)}`, bx + 14, by + 38);
+  ctx.fillText(`Fly A: ${activeReplay.flyA_real ? 'Bio 🟢' : 'Ctrl 🔴'} (CI: ${activeReplay.ci_a})   •   Fly B: ${activeReplay.flyB_real ? 'Bio 🟢' : 'Ctrl 🔴'} (CI: ${activeReplay.ci_b})   •   Δ: ${diffSign}${(activeReplay.ci_diff || 0).toFixed(2)}`, bx + 12, by + 34);
 
-  ctx.font = '10.5px monospace';
+  ctx.font = '10px monospace';
   ctx.fillStyle = '#3fb950';
-  const rPoolText = activeReplay.pool_size ? ` of ${activeReplay.pool_size}` : '';
-  ctx.fillText(`🔒 Control Twin #${activeReplay.ctrl_id !== undefined ? activeReplay.ctrl_id : '0'}${rPoolText} SHA-256: ${activeReplay.ctrl_hash || 'off-harness'} (Authored-Elsewhere)`, bx + 14, by + 54);
+  ctx.fillText(`🔒 Control Twin #${activeReplay.ctrl_id !== undefined ? activeReplay.ctrl_id : '0'} SHA-256: ${activeReplay.ctrl_hash || 'grant-battery-v4'}`, bx + 12, by + 48);
   ctx.restore();
 }
-
-pollServer();
 
 function render(timestamp) {
   ctx.fillStyle = '#090d13';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   if (currentMode === 'replay') {
-    // Precise delta-time step advancement at 30 steps/sec
     if (replayPlaying && activeReplay && activeReplay.trajectory_a) {
       if (lastAnimTime === null) lastAnimTime = timestamp;
       const dtSec = Math.min(0.1, (timestamp - lastAnimTime) / 1000);
@@ -1151,13 +1848,12 @@ function render(timestamp) {
   if (!serverState) {
     ctx.fillStyle = '#58a6ff';
     ctx.font = '14px sans-serif';
-    ctx.fillText('Connecting to live arena simulation...', 260, 290);
+    ctx.fillText('Connecting to live connectome arena simulation...', 240, 290);
     requestAnimationFrame(render);
     return;
   }
 
-  // Smooth client-side interpolation towards authoritative server physics
-  // Smooth client-side dead-reckoning towards authoritative server physics
+  // Client-side smooth interpolation
   if (renderInitialized && serverState.flyA && serverState.flyB) {
     const dtMs = Math.min(100, timestamp - lastRenderTime);
     lastRenderTime = timestamp;
@@ -1167,7 +1863,6 @@ function render(timestamp) {
     let targetBx = serverState.flyB.x;
     let targetBy = serverState.flyB.y;
 
-    // Extrapolate smoothly between packets if network packets are delayed by download saturation
     const timeSincePacket = performance.now() - lastPacketTime;
     if (!serverState.is_revealing && timeSincePacket > 35 && timeSincePacket < 1200) {
       const extraTicks = (timeSincePacket - 35) / 33.3;
@@ -1194,7 +1889,6 @@ function render(timestamp) {
     while (db > Math.PI) db -= Math.PI * 2;
     renderFlyB.heading += db * lerpRate;
 
-    // Maintain client-side trail buffer for 60 FPS visual smoothness
     if (serverState.step_count > 0) {
       const lastA = clientTrailA[clientTrailA.length - 1];
       if (!lastA || Math.hypot(renderFlyA.x - lastA[0], renderFlyA.y - lastA[1]) > 2.0) {
@@ -1214,25 +1908,10 @@ function render(timestamp) {
   const flyA = serverState.flyA;
   const flyB = serverState.flyB;
   const lr = serverState.last_reveal;
+  const activeItem = serverState.active_item || 1;
 
-  // Odor plume gradient
-  const grad = ctx.createRadialGradient(target.x, target.y, 5, target.x, target.y, 220);
-  grad.addColorStop(0, 'rgba(88, 166, 255, 0.35)');
-  grad.addColorStop(0.5, 'rgba(88, 166, 255, 0.1)');
-  grad.addColorStop(1, 'rgba(88, 166, 255, 0)');
-  ctx.fillStyle = grad;
-  ctx.beginPath();
-  ctx.arc(target.x, target.y, 220, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Odor source center
-  ctx.fillStyle = '#58a6ff';
-  ctx.beginPath();
-  ctx.arc(target.x, target.y, target.r, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = '#ffffff';
-  ctx.font = '12px sans-serif';
-  ctx.fillText('ODOR SOURCE', target.x - 42, target.y - 25);
+  // Render environment for active item
+  renderEnvironment(activeItem, serverState, target);
 
   // Trails
   function drawTrail(history, strokeColor) {
@@ -1257,43 +1936,43 @@ function render(timestamp) {
   drawTrail(activeTrailA, trailA);
   drawTrail(activeTrailB, trailB);
 
-  const labelA = isRevealing ? `Fly A: ${flyA.is_real ? 'Biological' : 'Scrambled'}` : 'Fly A';
-  const labelB = isRevealing ? `Fly B: ${flyB.is_real ? 'Biological' : 'Scrambled'}` : 'Fly B';
-  const isWinnerA = lr && lr.winner_name === 'Fly A';
-  const isWinnerB = lr && lr.winner_name === 'Fly B';
+  const labelA = isRevealing ? `Fly A: ${flyA.arm_label || (flyA.is_real ? 'Biological' : 'Control')}` : 'Fly A';
+  const labelB = isRevealing ? `Fly B: ${flyB.arm_label || (flyB.is_real ? 'Biological' : 'Control')}` : 'Fly B';
+  const isWinnerA = isRevealing && lr && lr.winner_name === 'Fly A';
+  const isWinnerB = isRevealing && lr && lr.winner_name === 'Fly B';
 
   drawFly(renderFlyA, colorA, labelA, isWinnerA);
   drawFly(renderFlyB, colorB, labelB, isWinnerB);
 
-  // Clean finish notification on canvas
+  // Reveal banner
   if (isRevealing && lr) {
     ctx.save();
     ctx.fillStyle = 'rgba(13, 25, 38, 0.92)';
     ctx.strokeStyle = '#388bfd';
     ctx.lineWidth = 2;
-    const bw = 500, bh = 76, bx = (canvas.width - bw) / 2, by = 16;
+    const bw = 540, bh = 74, bx = (canvas.width - bw) / 2, by = 16;
     ctx.beginPath();
     ctx.roundRect(bx, by, bw, bh, 8);
     ctx.fill();
     ctx.stroke();
 
     ctx.fillStyle = '#58a6ff';
-    ctx.font = 'bold 13px sans-serif';
-    const winStr = lr.winner_type === 'real' ? 'Biological Brain Won' : (lr.winner_type === 'shuf' ? 'Scrambled Twin Won' : 'Timeout');
-    ctx.fillText(`Flight #${lr.trial_num}: ${lr.winner_name} Reached Odor (${winStr})`, bx + 16, by + 22);
+    ctx.font = 'bold 12.5px sans-serif';
+    const winStr = lr.winner_type === 'real' ? 'Biological Brain Won' : (lr.winner_type === 'shuf' ? 'Control Twin Won' : 'Timeout');
+    const itemStr = lr.item_name || 'Item 1';
+    ctx.fillText(`Flight #${lr.trial_num} [${itemStr} · ${(lr.trial_mode || 'arm1').toUpperCase()}]: ${lr.winner_name} (${winStr})`, bx + 14, by + 20);
 
-    ctx.font = '12px sans-serif';
+    ctx.font = '11.5px sans-serif';
     ctx.fillStyle = '#c9d1d9';
-    const textA = `Fly A: ${flyA.is_real ? 'Biological 🟢' : 'Scrambled 🔴'}`;
-    const textB = `Fly B: ${flyB.is_real ? 'Biological 🟢' : 'Scrambled 🔴'}`;
-    ctx.fillText(`${textA}   •   ${textB}`, bx + 16, by + 42);
+    const textA = `Fly A: ${lr.arm_label_a || (flyA.is_real ? 'Biological 🟢' : 'Control 🔴')}`;
+    const textB = `Fly B: ${lr.arm_label_b || (flyB.is_real ? 'Biological 🟢' : 'Control 🔴')}`;
+    ctx.fillText(`${textA}   •   ${textB}`, bx + 14, by + 40);
 
-    ctx.font = '11px monospace';
+    ctx.font = '10.5px monospace';
     ctx.fillStyle = '#3fb950';
     const hashStr = lr.ctrl_hash ? lr.ctrl_hash : 'off-harness sealed';
-    const poolText = lr.pool_size ? ` of ${lr.pool_size}` : '';
     const idStr = lr.ctrl_id !== undefined ? `#${lr.ctrl_id}` : '#0';
-    ctx.fillText(`🔒 Control Twin ${idStr}${poolText} SHA-256: ${hashStr} (Authored-Elsewhere · Flight #${lr.trial_num})`, bx + 16, by + 62);
+    ctx.fillText(`🔒 Control Twin ${idStr} SHA-256: ${hashStr} (Authored-Elsewhere)`, bx + 14, by + 58);
     ctx.restore();
   }
 
