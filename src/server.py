@@ -297,15 +297,16 @@ class FlyAgent:
             r_r = max(0.0, 18.0 / (1.0 + 0.008 * d_rep_r))
             if self.swap_antennae:
                 I_ext[0] = c_r; I_ext[1] = c_l
+                I_ext[4] += r_r; I_ext[5] += r_l
             else:
                 I_ext[0] = c_l; I_ext[1] = c_r
+                I_ext[4] += r_l; I_ext[5] += r_r
             if c_l + c_r > 0.5:
                 diff_sens = (c_l - c_r) / (c_l + c_r)
                 if self.swap_antennae:
                     diff_sens = -diff_sens
                 I_ext[0] += max(0.0, diff_sens * 6.0)
                 I_ext[1] += max(0.0, -diff_sens * 6.0)
-            I_ext[4] += r_l; I_ext[5] += r_r
 
         elif item == 2:
             # Item 2: Concentration Reversal (low attraction vs high aversive avoidance)
@@ -320,8 +321,12 @@ class FlyAgent:
             dm5_r = max(0.0, (1.0 - d_core_r / core_r) * 28.0) if d_core_r < core_r else 0.0
 
             # Bilateral tropotaxis: closer antenna to core inhibits same-side turn -> steers away
-            I_ext[4] += dm5_l * 1.6
-            I_ext[5] += dm5_r * 1.6
+            if self.swap_antennae:
+                I_ext[4] += dm5_r * 1.6
+                I_ext[5] += dm5_l * 1.6
+            else:
+                I_ext[4] += dm5_l * 1.6
+                I_ext[5] += dm5_r * 1.6
 
             if d_center > core_r:
                 if self.swap_antennae:
@@ -355,13 +360,21 @@ class FlyAgent:
             co2_conc_center = 1.0 / (1.0 + math.exp((d_co2 - co2_r * 0.88) / 14.0))
 
             # Bilateral concentration gradient drives local interneurons 4 and 5
-            I_ext[4] += co2_conc_l * 45.0
-            I_ext[5] += co2_conc_r * 45.0
+            if self.swap_antennae:
+                I_ext[4] += co2_conc_r * 45.0
+                I_ext[5] += co2_conc_l * 45.0
+            else:
+                I_ext[4] += co2_conc_l * 45.0
+                I_ext[5] += co2_conc_r * 45.0
 
             # Primary attractant input is suppressed proportionally inside noxious plume
             att_scale = max(0.05, 0.6 - co2_conc_center * 0.5)
-            I_ext[0] = c_l * att_scale
-            I_ext[1] = c_r * att_scale
+            if self.swap_antennae:
+                I_ext[0] = c_r * att_scale
+                I_ext[1] = c_l * att_scale
+            else:
+                I_ext[0] = c_l * att_scale
+                I_ext[1] = c_r * att_scale
 
         elif item == 4:
             # Item 4: Looming Visual Escape
@@ -577,33 +590,46 @@ class FlyAgent:
 
         if item == 5:
             # Optomotor: wide circular arcs matching visual stripes
-            if self.is_real:
+            if self.is_real and not self.swap_antennae:
                 steer_bias = (self.rate_dna02_r - self.rate_dna02_l) * 0.00022 * self.optomotor_gain
+                yaw = max(-0.032, min(0.032, steer_bias + casting_torque * 0.35))
+            elif self.swap_antennae:
+                # Inverted optomotor: steers against visual motion
+                steer_bias = -(self.rate_dna02_r - self.rate_dna02_l) * 0.00020 * self.optomotor_gain
                 yaw = max(-0.032, min(0.032, steer_bias + casting_torque * 0.35))
             else:
                 ctrl_bias = (self.rate_dna02_r - self.rate_dna02_l) * 0.00008
                 yaw = max(-0.025, min(0.025, ctrl_bias + casting_torque * 1.1 + math.sin(self.wander_phase * 0.7) * 0.015))
         elif item == 4 and self.escape_active:
             yaw = casting_torque * 0.1
-        elif item == 3 and co2_conc_center > 0.12 and self.is_real:
-            # Biological fly steers smoothly away from noxious plume center
+        elif item == 3 and co2_conc_center > 0.12 and (self.is_real or self.swap_antennae):
+            # Biological fly steers smoothly away from noxious plume center;
+            # Sensory-crossing fly has inverted tropotaxis -> steers INTO noxious plume center!
             plume_angle = math.atan2(co2["y"] - self.y, co2["x"] - self.x)
             diff = (self.heading - (plume_angle + math.pi) + math.pi) % (2 * math.pi) - math.pi
-            steer_away = -0.045 if diff > 0 else 0.045
-            yaw = max(-max_yaw * 1.2, min(max_yaw * 1.2, (turn_r - turn_l) * 0.04 + steer_away + casting_torque * 0.3))
-        elif item == 2 and d_center < 110.0 and self.is_real:
-            # Biological fly avoids high-concentration toxic core
+            steer = -0.045 if diff > 0 else 0.045
+            if self.swap_antennae:
+                steer = -steer  # Inverted: positive feedback towards danger
+            yaw = max(-max_yaw * 1.2, min(max_yaw * 1.2, (turn_r - turn_l) * 0.04 + steer + casting_torque * 0.3))
+        elif item == 2 and d_center < 110.0 and (self.is_real or self.swap_antennae):
+            # Biological fly avoids high-concentration toxic core;
+            # Sensory-crossing fly steers INTO high-concentration core!
             target_angle = math.atan2(target_y - self.y, target_x - self.x)
             diff = (self.heading - target_angle + math.pi) % (2 * math.pi) - math.pi
-            steer_away = 0.028 if diff > 0 else -0.028
-            yaw = max(-max_yaw * 1.2, min(max_yaw * 1.2, (turn_r - turn_l) * 0.04 + steer_away + casting_torque * 0.4))
-        elif item == 1 and (d_rep_l < 75.0 or d_rep_r < 75.0) and self.is_real:
-            # Biological fly avoids repellent
+            steer = 0.028 if diff > 0 else -0.028
+            if self.swap_antennae:
+                steer = -steer  # Inverted: homes into toxic center
+            yaw = max(-max_yaw * 1.2, min(max_yaw * 1.2, (turn_r - turn_l) * 0.04 + steer + casting_torque * 0.4))
+        elif item == 1 and (d_rep_l < 75.0 or d_rep_r < 75.0) and (self.is_real or self.swap_antennae):
+            # Biological fly avoids repellent;
+            # Sensory-crossing fly steers INTO repellent!
             rep = engine.repellent if engine else {"x": ARENA_W - target_x, "y": ARENA_H - target_y}
             rep_angle = math.atan2(rep["y"] - self.y, rep["x"] - self.x)
             diff = (self.heading - rep_angle + math.pi) % (2 * math.pi) - math.pi
-            steer_away = 0.035 if diff > 0 else -0.035
-            yaw = max(-max_yaw * 1.1, min(max_yaw * 1.1, (turn_r - turn_l) * 0.045 + steer_away + casting_torque * 0.4))
+            steer = 0.035 if diff > 0 else -0.035
+            if self.swap_antennae:
+                steer = -steer  # Inverted: dives into repellent
+            yaw = max(-max_yaw * 1.1, min(max_yaw * 1.1, (turn_r - turn_l) * 0.045 + steer + casting_torque * 0.4))
         elif item == 6 and self.courtship_active and self.is_real:
             fem = engine.female_target if engine else {"x": target_x, "y": target_y}
             fem_angle = math.atan2(fem["y"] - self.y, fem["x"] - self.x)
@@ -652,10 +678,10 @@ class FlyAgent:
                 self.heading = (plume_angle + math.pi + turn_sign * random.uniform(0.35, 0.7) + math.pi) % (2 * math.pi) - math.pi
         elif item == 6 and self.courtship_active and self.is_real:
             spd = 0.32 * self.speed_multiplier
-        elif item == 2 and self.is_real and d_center < 50.0:
-            spd = -1.1  # Deep toxic core backward pivot (biological connectome only)
-        elif item == 2 and self.is_real and d_center < 110.0:
-            spd = 0.95  # Slows down in warning perimeter (biological connectome only)
+        elif item == 2 and self.is_real and not self.swap_antennae and d_center < 50.0:
+            spd = -1.1  # Deep toxic core backward pivot (normal biological connectome only)
+        elif item == 2 and self.is_real and not self.swap_antennae and d_center < 110.0:
+            spd = 0.95  # Slows down in warning perimeter (normal biological connectome only)
         elif self.bout_state == "pause":
             spd = 0.0  # Stationary sampling pause
         else:
