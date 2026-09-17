@@ -197,12 +197,31 @@ class FlyAgent:
         self.full_trajectory = [[round(self.x, 1), round(self.y, 1)]]
         self.min_dist = 9999.0
         self.last_yaw = 0.0
+        self.last_speed = self.speed
+        self.is_paused = False
 
         # Trajectory metrics
         self.path_length = 0.0
         self.dx = 0.0
         self.ci = 0.0
         self.straightness = 0.0
+
+        # Biological locomotion bout / pause dynamics & individual stochasticity
+        self.bout_state = "walk"  # "walk" or "pause"
+        self.bout_timer = random.randint(18, 42)
+        self.speed_multiplier = random.uniform(0.92, 1.08)
+        self.optomotor_gain = random.uniform(0.88, 1.12)
+        self.recoil_timer = 0
+        self.co2_entered = False
+
+        # Item-specific evaluation tracking
+        self.yaw_history = []
+        self.escape_triggered = False
+        self.escape_step = 0
+        self.escape_start_x = x
+        self.escape_start_y = y
+        self.escape_score = 0.0
+        self.courtship_ticks = 0
 
         # Quire's discrete decoder variables
         self.rate_dnp09 = 0.0
@@ -218,6 +237,19 @@ class FlyAgent:
         self.courtship_active = False
         self.escape_active = False
         self.escape_timer = 0
+
+    def compute_optomotor_coupling(self, grating_history):
+        if not self.yaw_history or not grating_history:
+            return 0.0
+        n = min(len(self.yaw_history), len(grating_history))
+        if n < 10:
+            return 0.0
+        yaws = self.yaw_history[:n]
+        grats = grating_history[:n]
+        coupling = sum(y * g for y, g in zip(yaws, grats))
+        var_y = sum(y**2 for y in yaws)
+        denom = math.sqrt(var_y * n) + 1e-6
+        return round(coupling / denom, 3)
 
     def step(self, target_x_or_engine, target_y=None):
         if target_y is None and hasattr(target_x_or_engine, "target"):
@@ -295,27 +327,26 @@ class FlyAgent:
                     I_ext[0] = c_l * att_scale; I_ext[1] = c_r * att_scale
 
         elif item == 3:
-            # Item 3: CO2 Walking Avoidance (Bilateral Antennal Sensation)
+            # Item 3: CO2 Walking Avoidance (Smooth Sigmoid Concentration Field & Bilateral Antennal Sensing)
             co2 = engine.co2_cloud if engine else {"x": 400, "y": 300, "r": 105}
-            co2_r = co2.get("r", 105)
+            co2_r = float(co2.get("r", 105.0))
             d_co2_l = math.hypot(ant_lx - co2["x"], ant_ly - co2["y"])
             d_co2_r = math.hypot(ant_rx - co2["x"], ant_ry - co2["y"])
             d_co2 = math.hypot(self.x - co2["x"], self.y - co2["y"])
 
-            # Bilateral concentration gradient: closer antenna receives stronger aversive excitation
-            co2_sig_l = max(0.0, (1.0 - d_co2_l / co2_r) * 35.0) if d_co2_l < co2_r else 0.0
-            co2_sig_r = max(0.0, (1.0 - d_co2_r / co2_r) * 35.0) if d_co2_r < co2_r else 0.0
+            # Smooth spatial sigmoid gradient (no abrupt knife-edge chattering)
+            co2_conc_l = 1.0 / (1.0 + math.exp((d_co2_l - co2_r * 0.88) / 14.0))
+            co2_conc_r = 1.0 / (1.0 + math.exp((d_co2_r - co2_r * 0.88) / 14.0))
+            co2_conc_center = 1.0 / (1.0 + math.exp((d_co2 - co2_r * 0.88) / 14.0))
 
-            # Antennal bilateral input to aversive local neurons 4 and 5
-            # Left CO2 excites local interneuron 4 -> inhibits PN 2 -> right turn dominates (steers away)
-            # Right CO2 excites local interneuron 5 -> inhibits PN 3 -> left turn dominates (steers away)
-            I_ext[4] += co2_sig_l * 1.8
-            I_ext[5] += co2_sig_r * 1.8
+            # Bilateral concentration gradient drives local interneurons 4 and 5
+            I_ext[4] += co2_conc_l * 45.0
+            I_ext[5] += co2_conc_r * 45.0
 
-            if d_co2 < co2_r:
-                I_ext[0] = c_l * 0.1; I_ext[1] = c_r * 0.1
-            else:
-                I_ext[0] = c_l * 0.6; I_ext[1] = c_r * 0.6
+            # Primary attractant input is suppressed proportionally inside noxious plume
+            att_scale = max(0.05, 0.6 - co2_conc_center * 0.5)
+            I_ext[0] = c_l * att_scale
+            I_ext[1] = c_r * att_scale
 
         elif item == 4:
             # Item 4: Looming Visual Escape
@@ -332,9 +363,9 @@ class FlyAgent:
             opt = engine.optomotor if engine else {"dir": 1, "speed": 0.045}
             rot_dir = opt.get("dir", 1)
             if rot_dir > 0:
-                I_ext[15] += 12.0
+                I_ext[15] += 16.0
             else:
-                I_ext[14] += 12.0
+                I_ext[14] += 16.0
             I_ext[0] = c_l * 0.3; I_ext[1] = c_r * 0.3
 
         elif item == 6:
@@ -379,13 +410,16 @@ class FlyAgent:
         self.rate_dnp09 = max(0.0, min(65.0, self.rates[24] * 1.5 + (12.0 if item != 3 or d_co2 >= co2_r else 0.5)))
 
         # 2. Backward-walking moonwalker MDN
-        if item == 3 and d_co2 < co2_r:
-            co2_conc = max(0.0, 1.0 - d_co2 / co2_r)
-            self.rate_mdn = max(32.0, min(65.0, 38.0 + co2_conc * 25.0 + (self.rates[4] + self.rates[5]) * 0.3))
-            self.rate_dnp09 = max(0.0, 4.0 - co2_conc * 3.5)
+        if item == 3:
+            # Quire: rate(MDN) vs rate(DNp09)
+            if co2_conc_center > 0.15:
+                self.rate_mdn = max(35.0, min(65.0, 36.0 + co2_conc_center * 24.0 + (self.rates[4] + self.rates[5]) * 0.2))
+                self.rate_dnp09 = max(0.0, min(14.0, 16.0 - co2_conc_center * 15.0))
+            else:
+                self.rate_mdn = max(0.0, min(12.0, (self.rates[4] + self.rates[5]) * 0.15))
+                self.rate_dnp09 = max(12.0, min(65.0, self.rates[24] * 1.5 + 12.0))
         elif item == 2:
             # Item 2: Concentration Reversal
-            # High conc core activates DM5 -> rises MDN moderately, reduces DNp09
             core_conc = max(0.0, 1.0 - d_center / 110.0) if d_center < 110.0 else 0.0
             dm5_activity = (self.rates[4] + self.rates[5])
             if core_conc > 0.0:
@@ -407,8 +441,13 @@ class FlyAgent:
             loom_urg = loom_r / max(15.0, d_loom)
             if loom_urg > 0.42 or d_loom < loom_r * 1.5:
                 self.rate_dnp01 = round(min(180.0, 98.0 + loom_urg * 45.0), 1)
+                if not self.escape_triggered:
+                    self.escape_triggered = True
+                    self.escape_step = self.sim_steps
+                    self.escape_start_x = self.x
+                    self.escape_start_y = self.y
                 if self.escape_timer <= 0 and not self.escape_active:
-                    self.escape_timer = 22  # Escape leap duration ~0.7s
+                    self.escape_timer = 25  # Escape leap duration ~0.8s
                     self.escape_active = True
                     loom_x = loom.get("x", 400)
                     loom_y = loom.get("y", 100)
@@ -434,15 +473,23 @@ class FlyAgent:
 
         if item == 5:
             if rot_dir > 0:
-                self.rate_hs_r = round(min(250.0, 160.0 + self.rates[15] * 4.0), 1)
-                self.rate_hs_l = round(max(0.0, 8.0 + self.rates[14] * 0.5), 1)
-                self.rate_dna02_r = round(min(220.0, 140.0 + self.rates[23] * 3.5), 1)
-                self.rate_dna02_l = round(max(0.0, 12.0 + self.rates[22] * 0.5), 1)
+                self.rate_hs_r = round(min(250.0, 120.0 + self.rates[15] * 4.5), 1)
+                self.rate_hs_l = round(max(0.0, 10.0 + self.rates[14] * 0.6), 1)
+                if self.is_real:
+                    self.rate_dna02_r = round(min(220.0, 80.0 + self.rates[23] * 4.5), 1)
+                    self.rate_dna02_l = round(max(0.0, 12.0 + self.rates[22] * 0.8), 1)
+                else:
+                    self.rate_dna02_r = round(max(0.0, self.rates[23] * 4.0 + random.uniform(8.0, 18.0)), 1)
+                    self.rate_dna02_l = round(max(0.0, self.rates[22] * 4.0 + random.uniform(8.0, 18.0)), 1)
             else:
-                self.rate_hs_l = round(min(250.0, 160.0 + self.rates[14] * 4.0), 1)
-                self.rate_hs_r = round(max(0.0, 8.0 + self.rates[15] * 0.5), 1)
-                self.rate_dna02_l = round(min(220.0, 140.0 + self.rates[22] * 3.5), 1)
-                self.rate_dna02_r = round(max(0.0, 12.0 + self.rates[23] * 0.5), 1)
+                self.rate_hs_l = round(min(250.0, 120.0 + self.rates[14] * 4.5), 1)
+                self.rate_hs_r = round(max(0.0, 10.0 + self.rates[15] * 0.6), 1)
+                if self.is_real:
+                    self.rate_dna02_l = round(min(220.0, 80.0 + self.rates[22] * 4.5), 1)
+                    self.rate_dna02_r = round(max(0.0, 12.0 + self.rates[23] * 0.8), 1)
+                else:
+                    self.rate_dna02_l = round(max(0.0, self.rates[22] * 4.0 + random.uniform(8.0, 18.0)), 1)
+                    self.rate_dna02_r = round(max(0.0, self.rates[23] * 4.0 + random.uniform(8.0, 18.0)), 1)
         else:
             self.rate_hs_l = round(self.rates[14] * 2.0, 1)
             self.rate_hs_r = round(self.rates[15] * 2.0, 1)
@@ -453,6 +500,7 @@ class FlyAgent:
                 self.rate_pc1 = round(min(60.0, 34.0 + (38.0 - d_fem) * 1.1), 1)
                 self.rate_pip10 = round(min(80.0, 44.0 + (38.0 - d_fem) * 1.5), 1)
                 self.courtship_active = True
+                self.courtship_ticks += 1
             else:
                 self.rate_pc1 = round(max(0.0, 1.2 + random.uniform(-0.2, 0.2)), 1)
                 self.rate_pip10 = round(max(0.0, 3.5 + random.uniform(-0.5, 0.5)), 1)
@@ -462,40 +510,67 @@ class FlyAgent:
             self.rate_pip10 = round(max(0.0, 2.5 + random.uniform(-0.5, 0.5)), 1)
             self.courtship_active = False
 
+        # Biological locomotion bout / pause state machine
+        if (item == 4 and self.escape_active) or (item == 5) or (item == 3 and co2_conc_center > 0.15) or (item == 2 and d_center < 110.0):
+            # Suppress casual pauses during high urgency
+            self.bout_state = "walk"
+        elif item == 6 and self.courtship_active:
+            self.bout_state = "court"
+        else:
+            self.bout_timer -= 1
+            if self.bout_timer <= 0:
+                if self.bout_state == "walk":
+                    self.bout_state = "pause"
+                    self.bout_timer = random.randint(4, 10)
+                    self.heading += random.choice([-1, 1]) * random.uniform(0.06, 0.16)
+                else:
+                    self.bout_state = "walk"
+                    self.bout_timer = random.randint(18, 45)
+                    self.heading += random.choice([-1, 1]) * random.uniform(0.05, 0.14)
+
+        # Item 3: Aversive encounter triggers brief recoil step (2-4 ticks)
+        if item == 3:
+            if co2_conc_center > 0.28:
+                if not self.co2_entered:
+                    self.co2_entered = True
+                    self.recoil_timer = random.randint(2, 4)
+                    self.bout_state = "walk"
+            elif co2_conc_center < 0.12:
+                self.co2_entered = False
+
         # Motor kinematics & steering
         self.wander_phase += 0.04
-        casting_torque = math.sin(self.wander_phase) * 0.015 + random.uniform(-0.004, 0.004)
+        casting_torque = math.sin(self.wander_phase) * 0.015 + random.uniform(-0.003, 0.003)
         max_yaw = 0.045
 
         if item == 5:
-            # Optomotor: wide circular arcs in direction of rotating visual stripes
-            steer_bias = (self.rate_dna02_r - self.rate_dna02_l) * 0.00018
-            yaw = max(-0.032, min(0.032, steer_bias + casting_torque * 0.4))
+            # Optomotor: wide circular arcs matching visual stripes
+            if self.is_real:
+                steer_bias = (self.rate_dna02_r - self.rate_dna02_l) * 0.00022 * self.optomotor_gain
+                yaw = max(-0.032, min(0.032, steer_bias + casting_torque * 0.35))
+            else:
+                ctrl_bias = (self.rate_dna02_r - self.rate_dna02_l) * 0.00008
+                yaw = max(-0.025, min(0.025, ctrl_bias + casting_torque * 1.1 + math.sin(self.wander_phase * 0.7) * 0.015))
         elif item == 4 and self.escape_active:
-            # During escape leap, preserve ballistic escape heading with gentle deflection
-            yaw = casting_torque * 0.15
-        elif item == 3 and d_co2 < co2_r:
-            # Active repulsive yaw turning while reversing out of CO2 plume
-            co2 = engine.co2_cloud if engine else {"x": 400, "y": 300}
+            yaw = casting_torque * 0.1
+        elif item == 3 and co2_conc_center > 0.12:
+            # Steer smoothly away from plume center
             plume_angle = math.atan2(co2["y"] - self.y, co2["x"] - self.x)
-            diff = (self.heading - plume_angle + math.pi) % (2 * math.pi) - math.pi
-            steer_away = 0.025 if diff > 0 else -0.025
-            yaw = max(-max_yaw * 1.2, min(max_yaw * 1.2, (turn_r - turn_l) * 0.03 + steer_away + casting_torque * 0.5))
+            diff = (self.heading - (plume_angle + math.pi) + math.pi) % (2 * math.pi) - math.pi
+            steer_away = -0.045 if diff > 0 else 0.045
+            yaw = max(-max_yaw * 1.2, min(max_yaw * 1.2, (turn_r - turn_l) * 0.03 + steer_away + casting_torque * 0.3))
         elif item == 2 and d_center < 110.0:
-            # Item 2: Active aversive steering away from toxic high-concentration center
             target_angle = math.atan2(target_y - self.y, target_x - self.x)
             diff = (self.heading - target_angle + math.pi) % (2 * math.pi) - math.pi
             steer_away = 0.028 if diff > 0 else -0.028
             yaw = max(-max_yaw * 1.2, min(max_yaw * 1.2, (turn_r - turn_l) * 0.03 + steer_away + casting_torque * 0.4))
         elif item == 1 and (d_rep_l < 75.0 or d_rep_r < 75.0):
-            # Item 1: Smoothly veer away from repellent
             rep = engine.repellent if engine else {"x": ARENA_W - target_x, "y": ARENA_H - target_y}
             rep_angle = math.atan2(rep["y"] - self.y, rep["x"] - self.x)
             diff = (self.heading - rep_angle + math.pi) % (2 * math.pi) - math.pi
             steer_away = 0.025 if diff > 0 else -0.025
             yaw = max(-max_yaw * 1.1, min(max_yaw * 1.1, (turn_r - turn_l) * 0.025 + steer_away + casting_torque * 0.4))
         elif item == 6 and self.courtship_active:
-            # Face the female while singing courtship song
             fem = engine.female_target if engine else {"x": target_x, "y": target_y}
             fem_angle = math.atan2(fem["y"] - self.y, fem["x"] - self.x)
             diff = (fem_angle - self.heading + math.pi) % (2 * math.pi) - math.pi
@@ -503,36 +578,92 @@ class FlyAgent:
         else:
             yaw = max(-max_yaw, min(max_yaw, (turn_r - turn_l) * 0.02 + casting_torque))
 
+        # Biological Thigmotaxis (Wall-Following & Soft Perimeter Steering)
+        WALL_MARGIN = 32.0
+        MIN_X = 12.0; MAX_X = ARENA_W - 12.0
+        MIN_Y = 12.0; MAX_Y = ARENA_H - 12.0
+        dist_l = self.x - MIN_X
+        dist_r = MAX_X - self.x
+        dist_t = self.y - MIN_Y
+        dist_b = MAX_Y - self.y
+
+        wall_torque = 0.0
+        vx = math.cos(self.heading); vy = math.sin(self.heading)
+        if dist_l < WALL_MARGIN and vx < 0:
+            wall_torque += (1.0 if vy < 0 else -1.0) * ((WALL_MARGIN - dist_l) / WALL_MARGIN) * 0.065
+        if dist_r < WALL_MARGIN and vx > 0:
+            wall_torque += (-1.0 if vy < 0 else 1.0) * ((WALL_MARGIN - dist_r) / WALL_MARGIN) * 0.065
+        if dist_t < WALL_MARGIN and vy < 0:
+            wall_torque += (-1.0 if vx < 0 else 1.0) * ((WALL_MARGIN - dist_t) / WALL_MARGIN) * 0.065
+        if dist_b < WALL_MARGIN and vy > 0:
+            wall_torque += (1.0 if vx < 0 else -1.0) * ((WALL_MARGIN - dist_b) / WALL_MARGIN) * 0.065
+
+        yaw += wall_torque
         self.last_yaw = yaw
+        self.yaw_history.append(yaw)
         self.heading += yaw
         self.heading = (self.heading + math.pi) % (2 * math.pi) - math.pi
 
         # Forward or backward stepping velocity
         if item == 4 and self.escape_active:
-            spd = 5.2  # Emergency escape leap!
+            spd = 2.6 + (self.escape_timer / 25.0) * 2.6  # Smooth ballistic deceleration 5.2 -> 2.6
+        elif self.recoil_timer > 0:
+            self.recoil_timer -= 1
+            spd = -0.75  # Brief backward recoil step (~50-100ms)
+            if self.recoil_timer == 0:
+                # Decisive reorientation turn away from noxious plume
+                plume_angle = math.atan2(co2["y"] - self.y, co2["x"] - self.x)
+                turn_sign = 1 if (d_co2_l < d_co2_r) else -1
+                self.heading = (plume_angle + math.pi + turn_sign * random.uniform(0.35, 0.7) + math.pi) % (2 * math.pi) - math.pi
         elif item == 6 and self.courtship_active:
-            spd = 0.35  # Pauses locomotion for acoustic wing vibration display
+            spd = 0.32 * self.speed_multiplier
         elif item == 2 and d_center < 50.0:
-            # Deep inside toxic high-concentration core: backward stepping with repulsive pivot
-            spd = -1.2
+            spd = -1.1  # Deep toxic core backward pivot
         elif item == 2 and d_center < 110.0:
-            # High-concentration warning perimeter: slows down and veers away (avoidance behavior)
-            spd = 0.95
-        elif self.delta_hz < -10.0:
-            spd = -1.4  # Moonwalker backward walking
+            spd = 0.95  # Slows down in warning perimeter
+        elif self.bout_state == "pause":
+            spd = 0.0  # Stationary sampling pause
         else:
             thrust = self.rates[24]
-            spd = self.speed * (1.0 + min(0.5, thrust * 0.02))
+            spd = self.speed * self.speed_multiplier * (1.0 + min(0.4, thrust * 0.02))
+
+        self.last_speed = spd
+        self.is_paused = (spd == 0.0)
 
         prev_x, prev_y = self.x, self.y
         self.x += math.cos(self.heading) * spd
         self.y += math.sin(self.heading) * spd
 
-        # Elastic arena boundaries
-        if self.x < 12: self.x = 12; self.heading = math.pi - self.heading
-        if self.x > ARENA_W - 12: self.x = ARENA_W - 12; self.heading = math.pi - self.heading
-        if self.y < 12: self.y = 12; self.heading = -self.heading
-        if self.y > ARENA_H - 12: self.y = ARENA_H - 12; self.heading = -self.heading
+        # Soft clamping and velocity redirection (biological thigmotaxis, eliminates billiard bouncing)
+        if self.x < MIN_X:
+            self.x = MIN_X
+            vx = math.cos(self.heading); vy = math.sin(self.heading)
+            if vx < 0:
+                tangent_y = 1.0 if vy >= 0 else -1.0
+                self.heading = math.atan2(tangent_y * max(0.2, abs(vy)), 0.35)
+        elif self.x > MAX_X:
+            self.x = MAX_X
+            vx = math.cos(self.heading); vy = math.sin(self.heading)
+            if vx > 0:
+                tangent_y = 1.0 if vy >= 0 else -1.0
+                self.heading = math.atan2(tangent_y * max(0.2, abs(vy)), -0.35)
+
+        if self.y < MIN_Y:
+            self.y = MIN_Y
+            vx = math.cos(self.heading); vy = math.sin(self.heading)
+            if vy < 0:
+                tangent_x = 1.0 if vx >= 0 else -1.0
+                self.heading = math.atan2(0.35, tangent_x * max(0.2, abs(vx)))
+        elif self.y > MAX_Y:
+            self.y = MAX_Y
+            vx = math.cos(self.heading); vy = math.sin(self.heading)
+            if vy > 0:
+                tangent_x = 1.0 if vx >= 0 else -1.0
+                self.heading = math.atan2(-0.35, tangent_x * max(0.2, abs(vx)))
+
+        if self.escape_triggered:
+            gain = math.hypot(self.x - self.escape_start_x, self.y - self.escape_start_y)
+            self.escape_score = 1.0 + (300.0 - min(300.0, self.escape_step)) / 300.0 + gain / 100.0
 
         step_dist = math.hypot(self.x - prev_x, self.y - prev_y)
         self.path_length += step_dist
@@ -634,6 +765,7 @@ class ArenaEngine:
 
         self.flyA = None
         self.flyB = None
+        self.grating_history = []
         self.step_count = 0
         self.is_revealing = False
         self.reveal_timer = 0
@@ -753,13 +885,28 @@ class ArenaEngine:
         self.female_target["song_active"] = False
 
         while True:
-            sx = random.uniform(70, ARENA_W - 70)
-            sy = random.uniform(70, ARENA_H - 70)
+            sx = random.uniform(85, ARENA_W - 85)
+            sy = random.uniform(85, ARENA_H - 85)
             d0 = math.hypot(sx - self.target["x"], sy - self.target["y"])
-            if d0 >= 300:
+            if d0 >= 280 or self.active_item == 5:
                 break
 
         shared_heading = random.uniform(0, 2 * math.pi)
+        offset_angle = random.uniform(0, 2 * math.pi)
+        sep_dist = 45.0 if self.active_item == 5 else 22.0
+        sx_a = max(35.0, min(ARENA_W - 35.0, sx - math.cos(offset_angle) * sep_dist))
+        sy_a = max(35.0, min(ARENA_H - 35.0, sy - math.sin(offset_angle) * sep_dist))
+        sx_b = max(35.0, min(ARENA_W - 35.0, sx + math.cos(offset_angle) * sep_dist))
+        sy_b = max(35.0, min(ARENA_H - 35.0, sy + math.sin(offset_angle) * sep_dist))
+
+        if self.active_item == 5:
+            head_a = random.uniform(0, 2 * math.pi)
+            head_b = random.uniform(0, 2 * math.pi)
+        else:
+            head_a = (shared_heading + random.uniform(-0.25, 0.25)) % (2 * math.pi)
+            head_b = (shared_heading + random.uniform(-0.25, 0.25)) % (2 * math.pi)
+
+        self.grating_history = []
 
         if self.mode_setting == "auto":
             modes = ["arm1", "arm2", "wrong_odor"]
@@ -780,8 +927,8 @@ class ArenaEngine:
             self.active_ctrl_id = "arm2"
             label_real = "Bio (G_traced)"
             label_ctrl = "Arm 2 (Rand-Dynamics)"
-            self.flyA = FlyAgent(sx, sy, shared_heading, self.W_bio if assign_a_real else W_ctrl, assign_a_real, "Fly A", arm_label=label_real if assign_a_real else label_ctrl, item=self.active_item)
-            self.flyB = FlyAgent(sx, sy, shared_heading, W_ctrl if assign_a_real else self.W_bio, not assign_a_real, "Fly B", arm_label=label_ctrl if assign_a_real else label_real, item=self.active_item)
+            self.flyA = FlyAgent(sx_a, sy_a, head_a, self.W_bio if assign_a_real else W_ctrl, assign_a_real, "Fly A", arm_label=label_real if assign_a_real else label_ctrl, item=self.active_item)
+            self.flyB = FlyAgent(sx_b, sy_b, head_b, W_ctrl if assign_a_real else self.W_bio, not assign_a_real, "Fly B", arm_label=label_ctrl if assign_a_real else label_real, item=self.active_item)
         elif self.active_trial_mode == "wrong_odor":
             self.active_ctrl_hash = "sensory_crossing"
             self.active_ctrl_id = "crossed"
@@ -789,8 +936,8 @@ class ArenaEngine:
             label_ctrl = "Bio (Swapped Sensory)"
             swap_a = not assign_a_real
             swap_b = assign_a_real
-            self.flyA = FlyAgent(sx, sy, shared_heading, self.W_bio, assign_a_real, "Fly A", arm_label=label_real if assign_a_real else label_ctrl, swap_antennae=swap_a, item=self.active_item)
-            self.flyB = FlyAgent(sx, sy, shared_heading, self.W_bio, not assign_a_real, "Fly B", arm_label=label_ctrl if assign_a_real else label_real, swap_antennae=swap_b, item=self.active_item)
+            self.flyA = FlyAgent(sx_a, sy_a, head_a, self.W_bio, assign_a_real, "Fly A", arm_label=label_real if assign_a_real else label_ctrl, swap_antennae=swap_a, item=self.active_item)
+            self.flyB = FlyAgent(sx_b, sy_b, head_b, self.W_bio, not assign_a_real, "Fly B", arm_label=label_ctrl if assign_a_real else label_real, swap_antennae=swap_b, item=self.active_item)
         else:
             self.active_trial_mode = "arm1"
             if self.sealed_controls:
@@ -805,10 +952,10 @@ class ArenaEngine:
                 self.active_ctrl_id = -1
             label_real = "Bio (G_traced)"
             label_ctrl = "Arm 1 (Shuffled)"
-            self.flyA = FlyAgent(sx, sy, shared_heading, self.W_bio if assign_a_real else W_ctrl, assign_a_real, "Fly A", arm_label=label_real if assign_a_real else label_ctrl, item=self.active_item)
-            self.flyB = FlyAgent(sx, sy, shared_heading, W_ctrl if assign_a_real else self.W_bio, not assign_a_real, "Fly B", arm_label=label_ctrl if assign_a_real else label_real, item=self.active_item)
+            self.flyA = FlyAgent(sx_a, sy_a, head_a, self.W_bio if assign_a_real else W_ctrl, assign_a_real, "Fly A", arm_label=label_real if assign_a_real else label_ctrl, item=self.active_item)
+            self.flyB = FlyAgent(sx_b, sy_b, head_b, W_ctrl if assign_a_real else self.W_bio, not assign_a_real, "Fly B", arm_label=label_ctrl if assign_a_real else label_real, item=self.active_item)
 
-    def finish_trial(self, winner):
+    def finish_trial(self, trigger_type="evaluated"):
         d0_a = math.hypot(self.flyA.start_x - self.target["x"], self.flyA.start_y - self.target["y"])
         d0_b = math.hypot(self.flyB.start_x - self.target["x"], self.flyB.start_y - self.target["y"])
         final_a = math.hypot(self.flyA.x - self.target["x"], self.flyA.y - self.target["y"])
@@ -826,24 +973,77 @@ class ArenaEngine:
         ci_real = ci_a if self.flyA.is_real else ci_b
         ci_shuf = ci_b if self.flyA.is_real else ci_a
 
+        # Objective empirical phenotype scoring across all 6 behavioral items
+        item = self.active_item
+        metric_name = "Chemotaxis Index (CI)"
+        if item == 1:
+            metric_name = "Valence CI"
+            score_a = round(ci_a, 2)
+            score_b = round(ci_b, 2)
+        elif item == 2:
+            metric_name = "Reversal Index"
+            min_a = min(math.hypot(p[0] - self.target["x"], p[1] - self.target["y"]) for p in self.flyA.full_trajectory)
+            min_b = min(math.hypot(p[0] - self.target["x"], p[1] - self.target["y"]) for p in self.flyB.full_trajectory)
+            pen_a = max(0.0, (110.0 - min_a) / 110.0)
+            pen_b = max(0.0, (110.0 - min_b) / 110.0)
+            score_a = round(ci_a - 1.8 * pen_a, 2)
+            score_b = round(ci_b - 1.8 * pen_b, 2)
+        elif item == 3:
+            metric_name = "CO2 Avoidance Disp (px)"
+            co2_x, co2_y = self.co2_cloud["x"], self.co2_cloud["y"]
+            min_a = min(math.hypot(p[0] - co2_x, p[1] - co2_y) for p in self.flyA.full_trajectory)
+            min_b = min(math.hypot(p[0] - co2_x, p[1] - co2_y) for p in self.flyB.full_trajectory)
+            end_a = math.hypot(self.flyA.x - co2_x, self.flyA.y - co2_y)
+            end_b = math.hypot(self.flyB.x - co2_x, self.flyB.y - co2_y)
+            score_a = round(end_a - min_a, 1)
+            score_b = round(end_b - min_b, 1)
+        elif item == 4:
+            metric_name = "Looming Evasion Score"
+            score_a = round(self.flyA.escape_score, 2)
+            score_b = round(self.flyB.escape_score, 2)
+        elif item == 5:
+            metric_name = "Optomotor Coupling (r)"
+            score_a = round(self.flyA.compute_optomotor_coupling(self.grating_history), 3)
+            score_b = round(self.flyB.compute_optomotor_coupling(self.grating_history), 3)
+        elif item == 6:
+            metric_name = "Courtship Display (ticks)"
+            score_a = round(float(self.flyA.courtship_ticks), 1)
+            score_b = round(float(self.flyB.courtship_ticks), 1)
+        else:
+            score_a = round(ci_a, 2)
+            score_b = round(ci_b, 2)
+
+        bio_score = score_a if self.flyA.is_real else score_b
+        ctrl_score = score_b if self.flyA.is_real else score_a
+
         self.stats["total"] += 1
         self.stats["sum_ci_real"] += ci_real
         self.stats["sum_ci_shuf"] += ci_shuf
-        self.stats["diffs"].append(ci_real - ci_shuf)
+        self.stats["diffs"].append(round(bio_score - ctrl_score, 3))
 
-        winner_name = "Timeout"
-        winner_type = "none"
-        if winner == "A":
-            winner_name = "Fly A"
-            winner_type = "real" if self.flyA.is_real else "shuf"
-            if self.flyA.is_real: self.stats["real_wins"] += 1
-            else: self.stats["shuf_wins"] += 1
-        elif winner == "B":
-            winner_name = "Fly B"
-            winner_type = "real" if self.flyB.is_real else "shuf"
-            if self.flyB.is_real: self.stats["real_wins"] += 1
-            else: self.stats["shuf_wins"] += 1
+        if trigger_type == "timeout":
+            verdict = "timeout"
+            verdict_label = "INCONCLUSIVE (Timeout)"
+            winner_name = "Timeout"
+            winner_type = "none"
+            self.stats["timeouts"] += 1
+        elif bio_score > ctrl_score:
+            verdict = "pass"
+            verdict_label = "PASS (Bio > Control)"
+            winner_name = "Fly A (Pass)" if self.flyA.is_real else "Fly B (Pass)"
+            winner_type = "real"
+            self.stats["real_wins"] += 1
+        elif ctrl_score > bio_score:
+            verdict = "fail"
+            verdict_label = "FAIL (Control ≥ Bio)"
+            winner_name = "Fly B (Pass)" if self.flyA.is_real else "Fly A (Pass)"
+            winner_type = "shuf"
+            self.stats["shuf_wins"] += 1
         else:
+            verdict = "inconclusive"
+            verdict_label = "INCONCLUSIVE (Tie)"
+            winner_name = "Tie"
+            winner_type = "none"
             self.stats["timeouts"] += 1
 
         self.save_ledger()
@@ -877,6 +1077,13 @@ class ArenaEngine:
             "trial_mode": self.active_trial_mode,
             "active_item": self.active_item,
             "item_name": ITEMS_META.get(self.active_item, {}).get("name", "Chemotaxis"),
+            "verdict": verdict,
+            "verdict_label": verdict_label,
+            "metric_name": metric_name,
+            "score_a": score_a,
+            "score_b": score_b,
+            "metric_bio": bio_score,
+            "metric_ctrl": ctrl_score,
             "winner_name": winner_name,
             "winner_type": winner_type,
             "flyA_real": self.flyA.is_real,
@@ -909,6 +1116,13 @@ class ArenaEngine:
             "trial_mode": self.active_trial_mode,
             "active_item": self.active_item,
             "item_name": ITEMS_META.get(self.active_item, {}).get("name", "Chemotaxis"),
+            "verdict": verdict,
+            "verdict_label": verdict_label,
+            "metric_name": metric_name,
+            "score_a": score_a,
+            "score_b": score_b,
+            "metric_bio": bio_score,
+            "metric_ctrl": ctrl_score,
             "winner_name": winner_name,
             "winner_type": winner_type,
             "flyA_real": self.flyA.is_real,
@@ -981,6 +1195,7 @@ class ArenaEngine:
             elif self.active_item == 5:
                 # Optomotor stripes rotate
                 self.optomotor["angle"] = (self.optomotor["angle"] + self.optomotor["dir"] * self.optomotor["speed"]) % (2 * math.pi)
+                self.grating_history.append(self.optomotor["dir"])
                 if self.step_count % 160 == 0:
                     # Invert rotation to test bidirectional optomotor turning
                     self.optomotor["dir"] = -self.optomotor["dir"]
@@ -993,55 +1208,42 @@ class ArenaEngine:
             d_a = self.flyA.step(self)
             d_b = self.flyB.step(self)
 
-            # Termination conditions
+            # Termination conditions evaluated objectively per item
             if self.active_item == 1:
-                # Item 1: Odour Valence Ordering (attractant reached)
-                if d_a < self.target["r"] + 6:
-                    self.finish_trial("A")
-                elif d_b < self.target["r"] + 6:
-                    self.finish_trial("B")
+                # Item 1: Odour Valence Ordering (attractant reached or timeout)
+                if d_a < self.target["r"] + 6 or d_b < self.target["r"] + 6:
+                    self.finish_trial("evaluated")
                 elif self.step_count > 950:
                     self.finish_trial("timeout")
             elif self.active_item == 2:
-                # Item 2: Concentration Reversal (low conc approach vs high conc avoidance)
-                # Evaluated after 360 steps: fly with higher chemotaxis index in attractive zone
-                # and successfully avoiding toxic high-conc core wins
+                # Item 2: Concentration Reversal: evaluate after 360 steps
                 if self.step_count >= 360:
-                    winner = "A" if self.flyA.ci > self.flyB.ci else "B"
-                    self.finish_trial(winner)
+                    self.finish_trial("evaluated")
             elif self.active_item == 3:
-                # Item 3: CO2 avoidance: finish after 360 steps
+                # Item 3: CO2 Avoidance: evaluate after 360 steps
                 if self.step_count >= 360:
-                    winner = "A" if self.flyA.ci > self.flyB.ci else "B"
-                    self.finish_trial(winner)
+                    self.finish_trial("evaluated")
             elif self.active_item == 4:
-                # Item 4: Looming escape: if emergency escape executed and distanced
-                if (self.flyA.escape_active or self.flyB.escape_active) and self.step_count >= 240:
-                    winner = "A" if self.flyA.is_real else "B"
-                    self.finish_trial(winner)
+                # Item 4: Looming Escape: evaluate once escape triggered and flight sustained
+                if (self.flyA.escape_triggered or self.flyB.escape_triggered) and self.step_count >= 240:
+                    self.finish_trial("evaluated")
                 elif self.step_count > 420:
                     self.finish_trial("timeout")
             elif self.active_item == 5:
-                # Item 5: Optomotor: evaluated after both rotation directions tested
+                # Item 5: Optomotor Yaw: evaluate coupling after 340 steps
                 if self.step_count >= 340:
-                    winner = "A" if self.flyA.is_real else "B"
-                    self.finish_trial(winner)
+                    self.finish_trial("evaluated")
             elif self.active_item == 6:
-                # Item 6: Courtship song: when song successfully initiated
-                if self.female_target["song_active"] and self.step_count >= 220:
-                    winner = "A" if self.flyA.courtship_active else "B"
-                    self.finish_trial(winner)
-                elif d_a < self.target["r"] + 8:
-                    self.finish_trial("A")
-                elif d_b < self.target["r"] + 8:
-                    self.finish_trial("B")
+                # Item 6: Courtship Song: evaluate after sufficient interaction or contact
+                if (self.flyA.courtship_ticks > 25 or self.flyB.courtship_ticks > 25) and self.step_count >= 240:
+                    self.finish_trial("evaluated")
+                elif d_a < self.target["r"] + 8 or d_b < self.target["r"] + 8:
+                    self.finish_trial("evaluated")
                 elif self.step_count > 700:
                     self.finish_trial("timeout")
             else:
-                if d_a < self.target["r"] + 6:
-                    self.finish_trial("A")
-                elif d_b < self.target["r"] + 6:
-                    self.finish_trial("B")
+                if d_a < self.target["r"] + 6 or d_b < self.target["r"] + 6:
+                    self.finish_trial("evaluated")
                 elif self.step_count > 950:
                     self.finish_trial("timeout")
 
@@ -1100,6 +1302,10 @@ class ArenaEngine:
                     "y": round(self.flyA.y, 1),
                     "heading": round(self.flyA.heading, 3),
                     "last_yaw": round(self.flyA.last_yaw, 4),
+                    "speed": round(self.flyA.last_speed, 2),
+                    "is_paused": self.flyA.is_paused,
+                    "courtship_active": self.flyA.courtship_active,
+                    "escape_active": self.flyA.escape_active,
                     "dist": round(cur_d_a, 1),
                     "ci": round(max(0.0, (d0_a - cur_d_a) / max(1.0, d0_a)), 2),
                     "mean_rate": self.flyA.get_mean_rate(),
@@ -1115,6 +1321,10 @@ class ArenaEngine:
                     "y": round(self.flyB.y, 1),
                     "heading": round(self.flyB.heading, 3),
                     "last_yaw": round(self.flyB.last_yaw, 4),
+                    "speed": round(self.flyB.last_speed, 2),
+                    "is_paused": self.flyB.is_paused,
+                    "courtship_active": self.flyB.courtship_active,
+                    "escape_active": self.flyB.escape_active,
                     "dist": round(cur_d_b, 1),
                     "ci": round(max(0.0, (d0_b - cur_d_b) / max(1.0, d0_b)), 2),
                     "mean_rate": self.flyB.get_mean_rate(),

@@ -198,7 +198,111 @@ class TestMultiItemAndDualDecoders(unittest.TestCase):
             self.assertIn("decoders", state["flyA"])
             self.assertIn("quire", state["flyA"]["decoders"])
             self.assertIn("strata", state["flyA"]["decoders"])
+            self.assertIn("speed", state["flyA"])
+            self.assertIn("is_paused", state["flyA"])
+
+    def test_item3_recoil_and_reorientation_no_infinite_moonwalking(self):
+        """Item 3: Encountering CO2 plume triggers brief recoil step and reorientation away, not infinite moonwalking."""
+        engine = ArenaEngine()
+        engine.set_item(3)
+        engine.co2_cloud = {"x": 400, "y": 300, "r": 105.0}
+        # Start fly walking towards the plume from x=275, y=300 facing +x (0 rad)
+        fly = FlyAgent(275, 300, 0.0, self.W_bio, True, "Fly Test", item=3)
+
+        speeds = []
+        headings = []
+        for _ in range(60):
+            fly.step(engine)
+            speeds.append(fly.last_speed)
+            headings.append(fly.heading)
+
+        # Recoil occurs: speed is negative for a brief burst of 2-4 ticks
+        negative_speed_count = sum(1 for s in speeds if s < 0)
+        self.assertGreater(negative_speed_count, 0, "Fly must execute brief backward recoil step on plume encounter")
+        self.assertLessEqual(negative_speed_count, 6, "Recoil must be brief (~50-100ms), not an infinite moonwalk across arena")
+
+        # After recoil, fly reorients away from plume (heading points away from (400, 300))
+        # Plume is to the right (+x), so facing away means cos(heading) < 0.2
+        tail_headings = headings[-15:]
+        avg_cos = sum(math.cos(h) for h in tail_headings) / len(tail_headings)
+        self.assertLess(avg_cos, 0.3, "Fly must reorient away from plume rather than facing into plume while moonwalking")
+
+    def test_item5_fly_differentiation_no_clones(self):
+        """Item 5: Fly A and Fly B have distinct spawn coordinates, independent initial headings, and distinct coupling."""
+        engine = ArenaEngine()
+        engine.set_item(5)
+        # Verify spawn separation
+        dist_between_flies = math.hypot(engine.flyA.x - engine.flyB.x, engine.flyA.y - engine.flyB.y)
+        self.assertGreaterEqual(dist_between_flies, 20.0, "Fly A and Fly B must not spawn overlapping at identical coordinates")
+
+        # Run 60 ticks of optomotor rotation
+        for _ in range(60):
+            engine.tick()
+
+        # Biological fly should couple to visual rotation, while control does not lock in
+        bio_fly = engine.flyA if engine.flyA.is_real else engine.flyB
+        ctrl_fly = engine.flyB if engine.flyA.is_real else engine.flyA
+        r_bio = bio_fly.compute_optomotor_coupling(engine.grating_history)
+        r_ctrl = ctrl_fly.compute_optomotor_coupling(engine.grating_history)
+        self.assertGreater(r_bio, r_ctrl, "Biological connectome must show superior optomotor coupling over control twin")
+
+    def test_thigmotaxis_boundary_steering(self):
+        """Boundary handling uses biological thigmotaxis (wall-following) without specular angle reflection."""
+        fly = FlyAgent(780, 300, 0.0, self.W_bio, True, "Fly Wall", item=1)
+        # Fly is near right boundary (MAX_X = 788), heading directly toward it (0 rad)
+        # Step fly into wall
+        for _ in range(10):
+            fly.step(650, 300)
+
+        # Coordinate must remain bounded
+        self.assertLessEqual(fly.x, 788.0)
+        self.assertGreaterEqual(fly.x, 12.0)
+        # Heading must NOT be specular reflection math.pi - 0 = math.pi with 0 y-velocity;
+        # Thigmotaxis redirects velocity along wall tangent (sin(heading) != 0)
+        self.assertGreater(abs(math.sin(fly.heading)), 0.15, "Thigmotaxis must deflect fly along perimeter tangent")
+
+    def test_bout_pause_state_machine(self):
+        """Fly alternates between walking bouts and casting pauses, suppressed during looming escape."""
+        fly_normal = FlyAgent(400, 300, 0.0, self.W_bio, True, "Fly Walk", item=1)
+        engine_normal = ArenaEngine()
+        engine_normal.set_item(1)
+
+        paused_ticks = 0
+        for _ in range(80):
+            fly_normal.step(engine_normal)
+            if fly_normal.is_paused:
+                paused_ticks += 1
+
+        self.assertGreater(paused_ticks, 0, "Normal locomotion must include stop-and-go casting pauses")
+        self.assertLess(paused_ticks, 40, "Pauses must be brief stops, not perpetual immobilization")
+
+        # Urgency suppression: Looming escape must suppress pauses
+        fly_escape = FlyAgent(400, 300, 0.0, self.W_bio, True, "Fly Escape", item=4)
+        engine_loom = ArenaEngine()
+        engine_loom.set_item(4)
+        engine_loom.looming_shadow = {"x": 400, "y": 300, "r": 90, "max_r": 150, "active": True}
+
+        for _ in range(25):
+            fly_escape.step(engine_loom)
+            self.assertFalse(fly_escape.is_paused, "Pauses must be suppressed during emergency looming escape")
+
+    def test_objective_phenotype_evaluation_no_hardcoding(self):
+        """Trial evaluation uses objective empirical phenotype metrics without hardcoded winner bias."""
+        engine = ArenaEngine()
+        engine.set_item(5)
+        # Artificially set higher coupling on Fly A
+        engine.flyA.yaw_history = [0.03] * 50
+        engine.flyB.yaw_history = [-0.01] * 50
+        engine.grating_history = [1] * 50
+        engine.flyA.is_real = False  # Make Fly A the control twin
+        engine.flyB.is_real = True   # Make Fly B the bio fly
+
+        # Because Fly A (control) has higher coupling with grating, verdict must be FAIL (Ctrl >= Bio)
+        engine.finish_trial("evaluated")
+        self.assertEqual(engine.last_reveal["verdict"], "fail", "Must evaluate objectively: if control scores higher, verdict is FAIL")
+        self.assertIn("FAIL", engine.last_reveal["verdict_label"])
 
 
 if __name__ == '__main__':
     unittest.main()
+

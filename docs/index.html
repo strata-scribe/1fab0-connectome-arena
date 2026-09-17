@@ -390,9 +390,9 @@
         <span style="font-weight: 600; color: #58a6ff;" id="total-trials">0</span>
       </div>
       <div class="score-row">
-        <div>Head-to-Head Record</div>
+        <div>Phenotype Evaluation (Pass vs Fail)</div>
         <div>
-          <span class="val-bio" id="wins-real">0</span> (<span id="pct-real">0.0%</span>) vs <span class="val-ctrl" id="wins-shuf">0</span> (<span id="pct-shuf">0.0%</span>)
+          Pass: <span class="val-bio" id="wins-real">0</span> (<span id="pct-real">0.0%</span>) vs Fail: <span class="val-ctrl" id="wins-shuf">0</span> (<span id="pct-shuf">0.0%</span>)
         </div>
       </div>
       <div class="score-row">
@@ -1274,18 +1274,21 @@ function updateUI(state) {
   if (state.last_reveal) {
     cardUnblinded.style.display = 'block';
     const lr = state.last_reveal;
-    const winnerLabel = lr.winner_type === 'real' ? 'Biological Brain' : (lr.winner_type === 'shuf' ? 'Control Twin' : 'Timeout');
-    document.getElementById('unblind-title').innerText = `Flight #${lr.trial_num} Finished — ${lr.winner_name} (${winnerLabel})`;
+    const verdictLabel = lr.verdict_label || (lr.winner_type === 'real' ? 'PASS (Bio > Control)' : (lr.winner_type === 'shuf' ? 'FAIL (Control ≥ Bio)' : 'INCONCLUSIVE (Timeout)'));
+    document.getElementById('unblind-title').innerText = `Flight #${lr.trial_num} Evaluated — ${verdictLabel}`;
     const labelA = lr.arm_label_a || (lr.flyA_real ? 'Biological Brain 🟢' : 'Control Twin 🔴');
     const labelB = lr.arm_label_b || (lr.flyB_real ? 'Biological Brain 🟢' : 'Control Twin 🔴');
+    const mName = lr.metric_name || 'Score';
+    const scoreA = lr.score_a !== undefined ? lr.score_a : lr.ci_a;
+    const scoreB = lr.score_b !== undefined ? lr.score_b : lr.ci_b;
     const rateTextA = lr.rate_a !== undefined ? ` · ${lr.rate_a} Hz` : '';
     const rateTextB = lr.rate_b !== undefined ? ` · ${lr.rate_b} Hz` : '';
     const dispTextA = lr.disp_a !== undefined ? ` · Δd: ${lr.disp_a > 0 ? '+' : ''}${lr.disp_a}` : '';
     const dispTextB = lr.disp_b !== undefined ? ` · Δd: ${lr.disp_b > 0 ? '+' : ''}${lr.disp_b}` : '';
 
     document.getElementById('unblind-detail').innerHTML = `
-      <div><strong>Fly A</strong>: <span style="font-weight:600; color:${lr.flyA_real ? '#3fb950' : '#f85149'}">${labelA}</span> (CI: ${lr.ci_a.toFixed(2)}${dispTextA}${rateTextA})</div>
-      <div><strong>Fly B</strong>: <span style="font-weight:600; color:${lr.flyB_real ? '#3fb950' : '#f85149'}">${labelB}</span> (CI: ${lr.ci_b.toFixed(2)}${dispTextB}${rateTextB})</div>
+      <div><strong>Fly A</strong>: <span style="font-weight:600; color:${lr.flyA_real ? '#3fb950' : '#f85149'}">${labelA}</span> (${mName}: ${scoreA}${dispTextA}${rateTextA})</div>
+      <div><strong>Fly B</strong>: <span style="font-weight:600; color:${lr.flyB_real ? '#3fb950' : '#f85149'}">${labelB}</span> (${mName}: ${scoreB}${dispTextB}${rateTextB})</div>
       <div style="margin-top:4px; padding-top:3px; border-top:1px dashed #21262d; font-size:0.70rem; color:#8b949e;">
         Item: <span style="color:#3fb950; font-weight:600;">${lr.item_name || 'Item 1'}</span> · Condition: <span style="color:#58a6ff; font-weight:600;">${(lr.trial_mode || 'arm1').toUpperCase()}</span> · Twin: <span style="font-family:monospace; color:#58a6ff;">#${lr.ctrl_id !== undefined ? lr.ctrl_id : '0'}</span>
       </div>
@@ -1305,12 +1308,13 @@ function renderHistoryCards(state) {
   const histContainer = document.getElementById('history-container');
   if (histContainer && state.recent_history && state.recent_history.length > 0) {
     histContainer.innerHTML = state.recent_history.map(item => {
-      const isRealWin = item.winner_type === 'real';
-      const isShufWin = item.winner_type === 'shuf';
-      const badgeBg = isRealWin ? '#238636' : (isShufWin ? '#da3633' : '#484f58');
-      const badgeText = isRealWin ? '🟢 Bio' : (isShufWin ? '🔴 Twin' : '⚪ Timeout');
-      const diffColor = item.ci_diff > 0 ? '#3fb950' : (item.ci_diff < 0 ? '#f85149' : '#8b949e');
-      const diffSign = item.ci_diff > 0 ? '+' : '';
+      const isPass = item.verdict === 'pass' || item.winner_type === 'real';
+      const isFail = item.verdict === 'fail' || item.winner_type === 'shuf';
+      const badgeBg = isPass ? '#238636' : (isFail ? '#da3633' : '#484f58');
+      const badgeText = item.verdict === 'pass' ? 'PASS' : (item.verdict === 'fail' ? 'FAIL' : (isPass ? 'PASS' : (isFail ? 'FAIL' : 'TIMEOUT')));
+      const diffVal = item.ci_diff !== undefined ? item.ci_diff : ((item.metric_bio || 0) - (item.metric_ctrl || 0));
+      const diffColor = diffVal > 0 ? '#3fb950' : (diffVal < 0 ? '#f85149' : '#8b949e');
+      const diffSign = diffVal > 0 ? '+' : '';
 
       const hasReplay = replayTrials.some(t => t.trial_num === item.trial_num);
       const isCurrentActive = activeReplay && activeReplay.trial_num === item.trial_num && currentMode === 'replay';
@@ -1323,10 +1327,12 @@ function renderHistoryCards(state) {
         ? `<button class="ctrl-btn sm" style="font-size: 0.65rem; padding: 1px 5px; ${isCurrentActive ? 'background:#1f6feb; color:#fff;' : 'color:#58a6ff;'}" onclick="event.stopPropagation(); selectReplayFlight(${item.trial_num})">Replay ↺</button>`
         : `<span style="font-size: 0.65rem; color: #8b949e;">Live</span>`;
 
+      const itemLabel = item.item_name ? `[${item.item_name}] ` : (item.active_item ? `[Item ${item.active_item}] ` : '');
+
       return `
         <div class="flight-card" style="${borderStyle}" onclick="if(${hasReplay}) selectReplayFlight(${item.trial_num})">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
-            <span style="font-weight:600; color:#c9d1d9;">Flight #${item.trial_num}</span>
+            <span style="font-weight:600; color:#c9d1d9;">Flight #${item.trial_num} <span style="font-size:0.65rem; color:#8b949e;">${itemLabel}</span></span>
             <div style="display:flex; gap:5px; align-items:center;">
               <span style="background:${badgeBg}; color:white; padding:1px 5px; border-radius:10px; font-size:0.65rem; font-weight:500;">${badgeText}</span>
               ${actionBtn}
@@ -1334,7 +1340,7 @@ function renderHistoryCards(state) {
           </div>
           <div style="color:#8b949e; display:flex; justify-content:space-between; font-size:0.70rem;">
             <span>A: ${item.flyA_real ? 'Bio' : 'Ctrl'} | B: ${item.flyB_real ? 'Bio' : 'Ctrl'}</span>
-            <span style="color:${diffColor}; font-weight:600;">&Delta; ${diffSign}${item.ci_diff.toFixed(2)}</span>
+            <span style="color:${diffColor}; font-weight:600;">&Delta; ${diffSign}${Number(diffVal).toFixed(2)}</span>
           </div>
         </div>
       `;
@@ -1451,43 +1457,207 @@ function drawFly(fly, bodyColor, labelText, isWinner) {
   ctx.save();
   ctx.translate(fly.x, fly.y);
 
+  // Winner / Evaluated Pulsating Halo
   if (isWinner) {
+    ctx.save();
     ctx.strokeStyle = bodyColor;
     ctx.lineWidth = 2;
+    ctx.setLineDash([4, 4]);
+    const pulse = Math.sin(performance.now() * 0.006) * 2;
     ctx.beginPath();
-    ctx.arc(0, 0, 16, 0, Math.PI * 2);
+    ctx.arc(0, 0, 18 + pulse, 0, Math.PI * 2);
     ctx.stroke();
+    ctx.restore();
   }
 
   ctx.rotate(fly.heading);
 
-  // Wings
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
-  ctx.beginPath();
-  ctx.ellipse(-2, -7, 6, 3, 0.3, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.ellipse(-2, 7, 6, 3, -0.3, 0, Math.PI * 2);
-  ctx.fill();
+  const spd = fly.speed !== undefined ? fly.speed : 2.0;
+  const isPaused = fly.isPaused || Math.abs(spd) < 0.15;
+  const isCourting = !!fly.courtshipActive;
+  const isEscaping = !!fly.escapeActive;
+  const gaitPhase = fly.gaitPhase || 0;
 
-  // Body
+  // Tripod Gait Phase (FL, MR, HL vs FR, ML, HR)
+  const swingAmp = isPaused ? 0.0 : Math.min(3.2, Math.max(1.0, Math.abs(spd) * 1.3));
+  const swingT1 = isPaused ? 0.0 : Math.sin(gaitPhase) * swingAmp;
+  const swingT2 = isPaused ? 0.0 : -Math.sin(gaitPhase) * swingAmp;
+
+  // Jointed Hexapod Legs: Coxa -> Femur -> Tibia -> Tarsus
+  const legs = [
+    // Front-Left (Tripod 1): angles forward-left
+    { base: [3.0, -3.0], knee: [5.8 + swingT1 * 0.5, -7.8 - Math.max(0, swingT1) * 0.5], foot: [8.5 + swingT1, -8.5] },
+    // Front-Right (Tripod 2): angles forward-right
+    { base: [3.0, 3.0], knee: [5.8 + swingT2 * 0.5, 7.8 + Math.max(0, swingT2) * 0.5], foot: [8.5 + swingT2, 8.5] },
+    // Middle-Left (Tripod 2): angles laterally
+    { base: [0.0, -3.5], knee: [-0.5 + swingT2 * 0.5, -9.5 - Math.max(0, swingT2) * 0.6], foot: [swingT2, -11.0] },
+    // Middle-Right (Tripod 1): angles laterally
+    { base: [0.0, 3.5], knee: [-0.5 + swingT1 * 0.5, 9.5 + Math.max(0, swingT1) * 0.6], foot: [swingT1, 11.0] },
+    // Hind-Left (Tripod 1): angles backward-left
+    { base: [-3.5, -3.0], knee: [-7.0 + swingT1 * 0.5, -8.5 - Math.max(0, swingT1) * 0.5], foot: [-9.5 + swingT1, -9.5] },
+    // Hind-Right (Tripod 2): angles backward-right
+    { base: [-3.5, 3.0], knee: [-7.0 + swingT2 * 0.5, 8.5 + Math.max(0, swingT2) * 0.5], foot: [-9.5 + swingT2, 9.5] }
+  ];
+
+  // Emergency Escape Leap (Item 4): middle and hind legs extend backwards in takeoff stance
+  if (isEscaping) {
+    legs[2].knee = [-4.0, -8.0]; legs[2].foot = [-10.0, -10.0];
+    legs[3].knee = [-4.0, 8.0];  legs[3].foot = [-10.0, 10.0];
+    legs[4].knee = [-8.5, -7.0]; legs[4].foot = [-14.5, -8.5];
+    legs[5].knee = [-8.5, 7.0];  legs[5].foot = [-14.5, 8.5];
+  }
+
+  // Draw 6 Articulated Legs
+  ctx.save();
+  ctx.strokeStyle = '#484f58';
+  ctx.lineWidth = 1.3;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  for (let i = 0; i < legs.length; i++) {
+    const l = legs[i];
+    ctx.beginPath();
+    ctx.moveTo(l.base[0], l.base[1]);
+    ctx.lineTo(l.knee[0], l.knee[1]);
+    ctx.lineTo(l.foot[0], l.foot[1]);
+    ctx.stroke();
+
+    // Small tarsal claw tip
+    ctx.fillStyle = '#30363d';
+    ctx.beginPath();
+    ctx.arc(l.foot[0], l.foot[1], 0.8, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // Abdomen (posterior segmented capsule)
   ctx.fillStyle = bodyColor;
   ctx.beginPath();
-  ctx.ellipse(0, 0, 7, 4, 0, 0, Math.PI * 2);
+  ctx.ellipse(-7.0, 0, 6.8, 3.8, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Eyes
-  ctx.fillStyle = '#ff7b72';
+  // Drosophila melanogaster Tergite Stripes (dark pigmented dorsal bands)
+  ctx.fillStyle = 'rgba(15, 20, 25, 0.55)';
+  const stripes = [-4.5, -7.0, -9.5, -11.5];
+  for (let s of stripes) {
+    ctx.beginPath();
+    ctx.ellipse(s, 0, 0.9, 3.2, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Thorax (Scutum & Scutellum)
+  ctx.fillStyle = bodyColor;
   ctx.beginPath();
-  ctx.arc(5, -3, 1.5, 0, Math.PI * 2);
-  ctx.arc(5, 3, 1.5, 0, Math.PI * 2);
+  ctx.ellipse(0, 0, 4.8, 3.6, 0, 0, Math.PI * 2);
   ctx.fill();
+  // Median suture line
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
+  ctx.lineWidth = 0.8;
+  ctx.beginPath();
+  ctx.moveTo(-3.5, 0);
+  ctx.lineTo(3.5, 0);
+  ctx.stroke();
+
+  // Head capsule
+  ctx.fillStyle = bodyColor;
+  ctx.beginPath();
+  ctx.ellipse(5.2, 0, 2.8, 2.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Lateral Compound Eyes (prominent ruby-red)
+  ctx.fillStyle = '#da3633';
+  ctx.beginPath();
+  ctx.arc(5.4, -2.6, 1.6, 0, Math.PI * 2);
+  ctx.arc(5.4, 2.6, 1.6, 0, Math.PI * 2);
+  ctx.fill();
+  // Corneal specular highlight
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+  ctx.fillRect(5.7, -2.8, 0.7, 0.7);
+  ctx.fillRect(5.7, 2.2, 0.7, 0.7);
+
+  // Antennae & Aristae with micro-vibration
+  const antVibe = isPaused ? Math.sin(performance.now() * 0.02) * 0.4 : 0;
+  ctx.strokeStyle = '#8b949e';
+  ctx.lineWidth = 0.9;
+  ctx.beginPath();
+  ctx.moveTo(7.2, -1.0);
+  ctx.lineTo(9.5 + antVibe, -2.2);
+  ctx.moveTo(7.2, 1.0);
+  ctx.lineTo(9.5 + antVibe, 2.2);
+  ctx.stroke();
+
+  // Wings: Translucent membranous blades folded flat or shivering in courtship
+  ctx.save();
+  const flutter = isPaused ? Math.sin(performance.now() * 0.005) * 0.03 : 0;
+
+  if (isCourting) {
+    // Item 6: Acoustic Courtship Wing Display — left wing extends ~65° and vibrates at ~180 Hz
+    const wingShiver = Math.sin(performance.now() * 0.08) * 0.16;
+    ctx.save();
+    ctx.translate(-1.0, -2.0);
+    ctx.rotate(-1.15 + wingShiver);
+    ctx.fillStyle = 'rgba(230, 240, 255, 0.55)';
+    ctx.strokeStyle = 'rgba(180, 210, 240, 0.7)';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.ellipse(-5.5, 0, 7.5, 2.8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    // Acoustic wave ripples radiating outward from vibrating wing
+    ctx.strokeStyle = 'rgba(88, 166, 255, 0.45)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(-5.5, 0, 9.5, -0.6, 0.6);
+    ctx.stroke();
+    ctx.restore();
+
+    // Right wing remains resting folded
+    ctx.save();
+    ctx.translate(-1.0, 1.5);
+    ctx.rotate(0.06);
+    ctx.fillStyle = 'rgba(230, 240, 255, 0.45)';
+    ctx.strokeStyle = 'rgba(180, 210, 240, 0.55)';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.ellipse(-6.0, 0, 7.2, 2.7, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  } else {
+    // Normal folded wings overlapping flat across the abdomen
+    // Left wing
+    ctx.save();
+    ctx.translate(-1.0, -1.2);
+    ctx.rotate(-0.06 + flutter);
+    ctx.fillStyle = 'rgba(230, 240, 255, 0.45)';
+    ctx.strokeStyle = 'rgba(180, 210, 240, 0.55)';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.ellipse(-6.0, 0, 7.2, 2.7, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+
+    // Right wing
+    ctx.save();
+    ctx.translate(-1.0, 1.2);
+    ctx.rotate(0.06 - flutter);
+    ctx.fillStyle = 'rgba(230, 240, 255, 0.45)';
+    ctx.strokeStyle = 'rgba(180, 210, 240, 0.55)';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.ellipse(-6.0, 0, 7.2, 2.7, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+  ctx.restore();
 
   ctx.restore();
 
+  // Fly text label
   ctx.fillStyle = bodyColor;
   ctx.font = '11px sans-serif';
-  ctx.fillText(labelText, fly.x - 14, fly.y - 14);
+  ctx.fillText(labelText, fly.x - 16, fly.y - 16);
 }
 
 function renderEnvironment(item, envData, target) {
@@ -1783,36 +1953,66 @@ function renderReplay() {
   const nextB = trajB[Math.min(stepB + 1, trajB.length - 1)];
   const headB = Math.atan2(nextB[1] - ptB[1], nextB[0] - ptB[0]) || 0;
 
-  const isWinA = activeReplay.winner_name === 'Fly A' && stepA >= trajA.length - 1;
-  const isWinB = activeReplay.winner_name === 'Fly B' && stepB >= trajB.length - 1;
+  const prevA = trajA[Math.max(0, stepA - 1)];
+  const spdReplayA = Math.hypot(ptA[0] - prevA[0], ptA[1] - prevA[1]);
+  const gaitPhaseA = stepA * 0.42;
+  const isCourtingA = (activeReplay.active_item === 6) && (activeReplay.flyA_real || false) && (stepA > trajA.length * 0.35);
+  const isEscapingA = (activeReplay.active_item === 4) && (stepA > 15 && stepA < 45);
 
-  drawFly({ x: ptA[0], y: ptA[1], heading: headA }, activeReplay.flyA_real ? '#3fb950' : '#f85149', `Fly A (${activeReplay.flyA_real ? 'Bio' : 'Ctrl'})`, isWinA);
-  drawFly({ x: ptB[0], y: ptB[1], heading: headB }, activeReplay.flyB_real ? '#3fb950' : '#f85149', `Fly B (${activeReplay.flyB_real ? 'Bio' : 'Ctrl'})`, isWinB);
+  const prevB = trajB[Math.max(0, stepB - 1)];
+  const spdReplayB = Math.hypot(ptB[0] - prevB[0], ptB[1] - prevB[1]);
+  const gaitPhaseB = stepB * 0.42;
+  const isCourtingB = (activeReplay.active_item === 6) && (activeReplay.flyB_real || false) && (stepB > trajB.length * 0.35);
+  const isEscapingB = (activeReplay.active_item === 4) && (stepB > 15 && stepB < 45);
+
+  const isWinA = (activeReplay.verdict === 'pass' ? activeReplay.flyA_real : (activeReplay.winner_type === 'real' ? activeReplay.flyA_real : false)) && stepA >= trajA.length - 1;
+  const isWinB = (activeReplay.verdict === 'pass' ? activeReplay.flyB_real : (activeReplay.winner_type === 'real' ? activeReplay.flyB_real : false)) && stepB >= trajB.length - 1;
+
+  drawFly({
+    x: ptA[0], y: ptA[1], heading: headA,
+    speed: spdReplayA, gaitPhase: gaitPhaseA,
+    isPaused: spdReplayA < 0.15,
+    courtshipActive: isCourtingA, escapeActive: isEscapingA
+  }, activeReplay.flyA_real ? '#3fb950' : '#f85149', `Fly A (${activeReplay.flyA_real ? 'Bio' : 'Ctrl'})`, isWinA);
+
+  drawFly({
+    x: ptB[0], y: ptB[1], heading: headB,
+    speed: spdReplayB, gaitPhase: gaitPhaseB,
+    isPaused: spdReplayB < 0.15,
+    courtshipActive: isCourtingB, escapeActive: isEscapingB
+  }, activeReplay.flyB_real ? '#3fb950' : '#f85149', `Fly B (${activeReplay.flyB_real ? 'Bio' : 'Ctrl'})`, isWinB);
 
   // Replay HUD Banner
   ctx.save();
   ctx.fillStyle = 'rgba(13, 25, 38, 0.92)';
-  ctx.strokeStyle = '#388bfd';
+  ctx.strokeStyle = activeReplay.verdict === 'pass' ? '#3fb950' : (activeReplay.verdict === 'fail' ? '#f85149' : '#388bfd');
   ctx.lineWidth = 1.5;
-  const bw = 540, bh = 56, bx = (canvas.width - bw) / 2, by = 12;
+  const bw = 540, bh = 58, bx = (canvas.width - bw) / 2, by = 12;
   ctx.beginPath();
   ctx.roundRect(bx, by, bw, bh, 6);
   ctx.fill();
   ctx.stroke();
 
-  ctx.fillStyle = '#58a6ff';
+  ctx.fillStyle = activeReplay.verdict === 'pass' ? '#3fb950' : (activeReplay.verdict === 'fail' ? '#f85149' : '#58a6ff');
   ctx.font = 'bold 12px sans-serif';
-  const itemTag = activeReplay.active_item ? `Item ${activeReplay.active_item}` : (activeReplay.stimulus || 'Run');
-  ctx.fillText(`⏮ Trial #${activeReplay.trial_num} [${itemTag}] Replay · ${activeReplay.winner_name || 'Completed'}`, bx + 12, by + 18);
+  const itemTag = activeReplay.item_name || (activeReplay.active_item ? `Item ${activeReplay.active_item}` : (activeReplay.stimulus || 'Run'));
+  const verdictText = activeReplay.verdict_label || (activeReplay.winner_type === 'real' ? 'Verdict: PASS (Bio > Control)' : (activeReplay.winner_type === 'shuf' ? 'Verdict: FAIL (Control ≥ Bio)' : 'Verdict: INCONCLUSIVE'));
+  ctx.fillText(`⏮ Trial #${activeReplay.trial_num} [${itemTag}] Replay · ${verdictText}`, bx + 12, by + 18);
 
   ctx.font = '11px sans-serif';
   ctx.fillStyle = '#c9d1d9';
-  const diffSign = (activeReplay.ci_diff || 0) > 0 ? '+' : '';
-  ctx.fillText(`Fly A: ${activeReplay.flyA_real ? 'Bio 🟢' : 'Ctrl 🔴'} (CI: ${activeReplay.ci_a})   •   Fly B: ${activeReplay.flyB_real ? 'Bio 🟢' : 'Ctrl 🔴'} (CI: ${activeReplay.ci_b})   •   Δ: ${diffSign}${(activeReplay.ci_diff || 0).toFixed(2)}`, bx + 12, by + 34);
+  const mName = activeReplay.metric_name || 'Valence CI';
+  const mBio = activeReplay.metric_bio !== undefined ? activeReplay.metric_bio : (activeReplay.score_a !== undefined && activeReplay.flyA_real ? activeReplay.score_a : activeReplay.score_b);
+  const mCtrl = activeReplay.metric_ctrl !== undefined ? activeReplay.metric_ctrl : (activeReplay.score_a !== undefined && activeReplay.flyA_real ? activeReplay.score_b : activeReplay.score_a);
+  const diffVal = activeReplay.ci_diff !== undefined ? activeReplay.ci_diff : ((mBio || 0) - (mCtrl || 0));
+  const diffSign = diffVal > 0 ? '+' : '';
+  const scoreA = activeReplay.score_a !== undefined ? activeReplay.score_a : activeReplay.ci_a;
+  const scoreB = activeReplay.score_b !== undefined ? activeReplay.score_b : activeReplay.ci_b;
+  ctx.fillText(`Fly A (${activeReplay.flyA_real ? 'Bio' : 'Ctrl'}): ${scoreA}  •  Fly B (${activeReplay.flyB_real ? 'Bio' : 'Ctrl'}): ${scoreB}  •  ${mName} Δ: ${diffSign}${Number(diffVal).toFixed(2)}`, bx + 12, by + 34);
 
   ctx.font = '10px monospace';
   ctx.fillStyle = '#3fb950';
-  ctx.fillText(`🔒 Control Twin #${activeReplay.ctrl_id !== undefined ? activeReplay.ctrl_id : '0'} SHA-256: ${activeReplay.ctrl_hash || 'grant-battery-v4'}`, bx + 12, by + 48);
+  ctx.fillText(`🔒 Control Twin #${activeReplay.ctrl_id !== undefined ? activeReplay.ctrl_id : '0'} SHA-256: ${activeReplay.ctrl_hash || 'grant-battery-v4'}`, bx + 12, by + 50);
   ctx.restore();
 }
 
@@ -1858,22 +2058,12 @@ function render(timestamp) {
     const dtMs = Math.min(100, timestamp - lastRenderTime);
     lastRenderTime = timestamp;
 
-    let targetAx = serverState.flyA.x;
-    let targetAy = serverState.flyA.y;
-    let targetBx = serverState.flyB.x;
-    let targetBy = serverState.flyB.y;
+    const targetAx = serverState.flyA.x;
+    const targetAy = serverState.flyA.y;
+    const targetBx = serverState.flyB.x;
+    const targetBy = serverState.flyB.y;
 
-    const timeSincePacket = performance.now() - lastPacketTime;
-    if (!serverState.is_revealing && timeSincePacket > 35 && timeSincePacket < 1200) {
-      const extraTicks = (timeSincePacket - 35) / 33.3;
-      const fwd = Math.min(25, extraTicks * 2.2);
-      targetAx += Math.cos(serverState.flyA.heading) * fwd;
-      targetAy += Math.sin(serverState.flyA.heading) * fwd;
-      targetBx += Math.cos(serverState.flyB.heading) * fwd;
-      targetBy += Math.sin(serverState.flyB.heading) * fwd;
-    }
-
-    const lerpRate = Math.min(1.0, 0.35 * (dtMs / 16.6));
+    const lerpRate = Math.min(1.0, 0.32 * (dtMs / 16.6));
     renderFlyA.x += (targetAx - renderFlyA.x) * lerpRate;
     renderFlyA.y += (targetAy - renderFlyA.y) * lerpRate;
     renderFlyB.x += (targetBx - renderFlyB.x) * lerpRate;
@@ -1888,6 +2078,29 @@ function render(timestamp) {
     while (db < -Math.PI) db += Math.PI * 2;
     while (db > Math.PI) db -= Math.PI * 2;
     renderFlyB.heading += db * lerpRate;
+
+    // Biological speed & tripod gait phase accumulation
+    const spdA = serverState.flyA.speed !== undefined ? serverState.flyA.speed : 2.0;
+    const spdB = serverState.flyB.speed !== undefined ? serverState.flyB.speed : 2.0;
+    const isPausedA = !!serverState.flyA.is_paused || Math.abs(spdA) < 0.15;
+    const isPausedB = !!serverState.flyB.is_paused || Math.abs(spdB) < 0.15;
+
+    if (!isPausedA) {
+      renderFlyA.gaitPhase = (renderFlyA.gaitPhase || 0) + Math.abs(spdA) * (dtMs / 16.6) * 0.22;
+    }
+    if (!isPausedB) {
+      renderFlyB.gaitPhase = (renderFlyB.gaitPhase || 0) + Math.abs(spdB) * (dtMs / 16.6) * 0.22;
+    }
+
+    renderFlyA.speed = spdA;
+    renderFlyA.isPaused = isPausedA;
+    renderFlyA.courtshipActive = serverState.flyA.courtship_active;
+    renderFlyA.escapeActive = serverState.flyA.escape_active;
+
+    renderFlyB.speed = spdB;
+    renderFlyB.isPaused = isPausedB;
+    renderFlyB.courtshipActive = serverState.flyB.courtship_active;
+    renderFlyB.escapeActive = serverState.flyB.escape_active;
 
     if (serverState.step_count > 0) {
       const lastA = clientTrailA[clientTrailA.length - 1];
@@ -1938,8 +2151,8 @@ function render(timestamp) {
 
   const labelA = isRevealing ? `Fly A: ${flyA.arm_label || (flyA.is_real ? 'Biological' : 'Control')}` : 'Fly A';
   const labelB = isRevealing ? `Fly B: ${flyB.arm_label || (flyB.is_real ? 'Biological' : 'Control')}` : 'Fly B';
-  const isWinnerA = isRevealing && lr && lr.winner_name === 'Fly A';
-  const isWinnerB = isRevealing && lr && lr.winner_name === 'Fly B';
+  const isWinnerA = isRevealing && lr && (lr.verdict === 'pass' ? flyA.is_real : (lr.winner_type === 'real' ? flyA.is_real : false));
+  const isWinnerB = isRevealing && lr && (lr.verdict === 'pass' ? flyB.is_real : (lr.winner_type === 'real' ? flyB.is_real : false));
 
   drawFly(renderFlyA, colorA, labelA, isWinnerA);
   drawFly(renderFlyB, colorB, labelB, isWinnerB);
@@ -1948,25 +2161,30 @@ function render(timestamp) {
   if (isRevealing && lr) {
     ctx.save();
     ctx.fillStyle = 'rgba(13, 25, 38, 0.92)';
-    ctx.strokeStyle = '#388bfd';
+    ctx.strokeStyle = lr.verdict === 'pass' ? '#3fb950' : (lr.verdict === 'fail' ? '#f85149' : '#388bfd');
     ctx.lineWidth = 2;
-    const bw = 540, bh = 74, bx = (canvas.width - bw) / 2, by = 16;
+    const bw = 540, bh = 76, bx = (canvas.width - bw) / 2, by = 16;
     ctx.beginPath();
     ctx.roundRect(bx, by, bw, bh, 8);
     ctx.fill();
     ctx.stroke();
 
-    ctx.fillStyle = '#58a6ff';
+    ctx.fillStyle = lr.verdict === 'pass' ? '#3fb950' : (lr.verdict === 'fail' ? '#f85149' : '#58a6ff');
     ctx.font = 'bold 12.5px sans-serif';
-    const winStr = lr.winner_type === 'real' ? 'Biological Brain Won' : (lr.winner_type === 'shuf' ? 'Control Twin Won' : 'Timeout');
-    const itemStr = lr.item_name || 'Item 1';
-    ctx.fillText(`Flight #${lr.trial_num} [${itemStr} · ${(lr.trial_mode || 'arm1').toUpperCase()}]: ${lr.winner_name} (${winStr})`, bx + 14, by + 20);
+    const verdictStr = lr.verdict_label || (lr.winner_type === 'real' ? 'Verdict: PASS (Bio > Control)' : (lr.winner_type === 'shuf' ? 'Verdict: FAIL (Control ≥ Bio)' : 'Verdict: INCONCLUSIVE (Timeout)'));
+    const itemStr = lr.item_name || `Item ${lr.active_item || 1}`;
+    ctx.fillText(`Flight #${lr.trial_num} [${itemStr} · ${(lr.trial_mode || 'arm1').toUpperCase()}]: ${verdictStr}`, bx + 14, by + 20);
 
     ctx.font = '11.5px sans-serif';
     ctx.fillStyle = '#c9d1d9';
-    const textA = `Fly A: ${lr.arm_label_a || (flyA.is_real ? 'Biological 🟢' : 'Control 🔴')}`;
-    const textB = `Fly B: ${lr.arm_label_b || (flyB.is_real ? 'Biological 🟢' : 'Control 🔴')}`;
-    ctx.fillText(`${textA}   •   ${textB}`, bx + 14, by + 40);
+    const mName = lr.metric_name || 'Score';
+    const mBio = lr.metric_bio !== undefined ? lr.metric_bio : (lr.score_a !== undefined && flyA.is_real ? lr.score_a : lr.score_b);
+    const mCtrl = lr.metric_ctrl !== undefined ? lr.metric_ctrl : (lr.score_a !== undefined && flyA.is_real ? lr.score_b : lr.score_a);
+    const diffVal = (mBio !== undefined && mCtrl !== undefined) ? (mBio - mCtrl) : (lr.ci_diff || 0);
+    const diffSign = diffVal > 0 ? '+' : '';
+    const scoreA = lr.score_a !== undefined ? lr.score_a : lr.ci_a;
+    const scoreB = lr.score_b !== undefined ? lr.score_b : lr.ci_b;
+    ctx.fillText(`Fly A (${flyA.is_real ? 'Bio' : 'Ctrl'}): ${scoreA}  •  Fly B (${flyB.is_real ? 'Bio' : 'Ctrl'}): ${scoreB}  •  ${mName} Δ: ${diffSign}${Number(diffVal).toFixed(2)}`, bx + 14, by + 40);
 
     ctx.font = '10.5px monospace';
     ctx.fillStyle = '#3fb950';

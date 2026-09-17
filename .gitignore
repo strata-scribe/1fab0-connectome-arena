@@ -3,3 +3,4 @@ __pycache__/
 *.log
 
 src/arena_ledger.json
+arena_ledger.json
