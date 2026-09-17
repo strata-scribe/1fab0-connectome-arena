@@ -467,10 +467,10 @@ class FlyAgent:
         # 3. Looming Giant Fibre DNp01
         if item == 4:
             loom_urg = loom_r / max(15.0, d_loom)
-            # Biological giant fiber escape requires synaptic transmission through lobula neurons (rates[20] > 18.0) or urgent looming on real connectome
-            escape_threshold_met = (self.rates[20] > 18.0) or (loom_urg > 0.42 and self.is_real) or (d_loom < loom_r * 1.1)
+            # Biological giant fiber escape requires synaptic transmission through lobula neurons on real connectome
+            escape_threshold_met = self.is_real and ((self.rates[20] > 18.0) or (loom_urg > 0.42))
             if escape_threshold_met:
-                self.rate_dnp01 = round(min(180.0, 98.0 + loom_urg * 45.0 + (self.rates[20] * 1.8 if self.is_real else 0.0)), 1)
+                self.rate_dnp01 = round(min(180.0, 98.0 + loom_urg * 45.0 + self.rates[20] * 1.8), 1)
                 if not self.escape_triggered:
                     self.escape_triggered = True
                     self.escape_step = self.sim_steps
@@ -483,7 +483,7 @@ class FlyAgent:
                     loom_y = loom.get("y", 100)
                     self.heading = math.atan2(self.y - loom_y, self.x - loom_x) + random.uniform(-0.15, 0.15)
             else:
-                self.rate_dnp01 = round(min(40.0, loom_urg * 25.0 + self.rates[20]), 1)
+                self.rate_dnp01 = round(min(40.0, (loom_urg * 25.0 if self.is_real else 5.0) + self.rates[20] * 0.5), 1)
                 if self.escape_timer <= 0:
                     self.escape_active = False
         else:
@@ -526,7 +526,7 @@ class FlyAgent:
 
         # 5. Courtship song neurons: pC1 and pIP10
         if item == 6:
-            if d_fem < 38.0 and (self.is_real or self.rates[16] > 15.0):
+            if d_fem < 38.0 and self.is_real:
                 self.rate_pc1 = round(min(60.0, 34.0 + (38.0 - d_fem) * 1.1 + self.rates[16] * 0.4), 1)
                 self.rate_pip10 = round(min(80.0, 44.0 + (38.0 - d_fem) * 1.5 + self.rates[17] * 0.4), 1)
                 self.courtship_active = True
@@ -541,8 +541,8 @@ class FlyAgent:
             self.courtship_active = False
 
         # Biological locomotion bout / pause state machine
-        if (item == 4 and self.escape_active) or (item == 5) or (item == 3 and co2_conc_center > 0.15) or (item == 2 and d_center < 110.0):
-            # Suppress casual pauses during high urgency
+        if (item == 4 and self.escape_active) or (item == 5) or (item == 3 and co2_conc_center > 0.15 and self.is_real) or (item == 2 and d_center < 110.0 and self.is_real):
+            # Suppress casual pauses during high urgency (biological connectome only)
             self.bout_state = "walk"
         elif item == 6 and self.courtship_active:
             self.bout_state = "court"
@@ -558,10 +558,9 @@ class FlyAgent:
                     self.bout_timer = random.randint(18, 45)
                     self.heading += random.choice([-1, 1]) * random.uniform(0.05, 0.14)
 
-        # Item 3: Aversive encounter triggers brief recoil step (2-4 ticks) in biological connectome
-        if item == 3:
-            co2_drive = (self.rates[4] + self.rates[5])
-            if co2_conc_center > 0.25 and (self.is_real or co2_drive > 15.0):
+        # Item 3: Aversive encounter triggers brief recoil step (2-4 ticks) in biological connectome only
+        if item == 3 and self.is_real:
+            if co2_conc_center > 0.25:
                 if not self.co2_entered:
                     self.co2_entered = True
                     self.recoil_timer = random.randint(2, 4)
@@ -586,36 +585,35 @@ class FlyAgent:
                 yaw = max(-0.025, min(0.025, ctrl_bias + casting_torque * 1.1 + math.sin(self.wander_phase * 0.7) * 0.015))
         elif item == 4 and self.escape_active:
             yaw = casting_torque * 0.1
-        elif item == 3 and co2_conc_center > 0.12:
-            co2_drive = (self.rates[4] + self.rates[5])
-            if self.is_real or co2_drive > 10.0:
-                # Steer smoothly away from plume center
-                plume_angle = math.atan2(co2["y"] - self.y, co2["x"] - self.x)
-                diff = (self.heading - (plume_angle + math.pi) + math.pi) % (2 * math.pi) - math.pi
-                steer_away = -0.045 if diff > 0 else 0.045
-                yaw = max(-max_yaw * 1.2, min(max_yaw * 1.2, (turn_r - turn_l) * 0.04 + steer_away + casting_torque * 0.3))
-            else:
-                yaw = max(-max_yaw, min(max_yaw, (turn_r - turn_l) * 0.02 + casting_torque))
-        elif item == 2 and d_center < 110.0:
+        elif item == 3 and co2_conc_center > 0.12 and self.is_real:
+            # Biological fly steers smoothly away from noxious plume center
+            plume_angle = math.atan2(co2["y"] - self.y, co2["x"] - self.x)
+            diff = (self.heading - (plume_angle + math.pi) + math.pi) % (2 * math.pi) - math.pi
+            steer_away = -0.045 if diff > 0 else 0.045
+            yaw = max(-max_yaw * 1.2, min(max_yaw * 1.2, (turn_r - turn_l) * 0.04 + steer_away + casting_torque * 0.3))
+        elif item == 2 and d_center < 110.0 and self.is_real:
+            # Biological fly avoids high-concentration toxic core
             target_angle = math.atan2(target_y - self.y, target_x - self.x)
             diff = (self.heading - target_angle + math.pi) % (2 * math.pi) - math.pi
             steer_away = 0.028 if diff > 0 else -0.028
             yaw = max(-max_yaw * 1.2, min(max_yaw * 1.2, (turn_r - turn_l) * 0.04 + steer_away + casting_torque * 0.4))
-        elif item == 1 and (d_rep_l < 75.0 or d_rep_r < 75.0):
+        elif item == 1 and (d_rep_l < 75.0 or d_rep_r < 75.0) and self.is_real:
+            # Biological fly avoids repellent
             rep = engine.repellent if engine else {"x": ARENA_W - target_x, "y": ARENA_H - target_y}
             rep_angle = math.atan2(rep["y"] - self.y, rep["x"] - self.x)
             diff = (self.heading - rep_angle + math.pi) % (2 * math.pi) - math.pi
             steer_away = 0.035 if diff > 0 else -0.035
             yaw = max(-max_yaw * 1.1, min(max_yaw * 1.1, (turn_r - turn_l) * 0.045 + steer_away + casting_torque * 0.4))
-        elif item == 6 and self.courtship_active:
+        elif item == 6 and self.courtship_active and self.is_real:
             fem = engine.female_target if engine else {"x": target_x, "y": target_y}
             fem_angle = math.atan2(fem["y"] - self.y, fem["x"] - self.x)
             diff = (fem_angle - self.heading + math.pi) % (2 * math.pi) - math.pi
             yaw = max(-0.035, min(0.035, diff * 0.2 + casting_torque * 0.2))
         else:
+            # Control flies & baseline: spontaneous exploration + scrambled synaptic readout
             yaw = max(-max_yaw, min(max_yaw, (turn_r - turn_l) * 0.045 + casting_torque))
 
-        # Biological Thigmotaxis (Wall-Following & Soft Perimeter Steering)
+        # Biological Thigmotaxis (Wall-Following & Soft Perimeter Steering - physical boundary property for all bodies)
         WALL_MARGIN = 32.0
         MIN_X = 12.0; MAX_X = ARENA_W - 12.0
         MIN_Y = 12.0; MAX_Y = ARENA_H - 12.0
@@ -652,17 +650,18 @@ class FlyAgent:
                 plume_angle = math.atan2(co2["y"] - self.y, co2["x"] - self.x)
                 turn_sign = 1 if (d_co2_l < d_co2_r) else -1
                 self.heading = (plume_angle + math.pi + turn_sign * random.uniform(0.35, 0.7) + math.pi) % (2 * math.pi) - math.pi
-        elif item == 6 and self.courtship_active:
+        elif item == 6 and self.courtship_active and self.is_real:
             spd = 0.32 * self.speed_multiplier
-        elif item == 2 and d_center < 50.0:
-            spd = -1.1  # Deep toxic core backward pivot
-        elif item == 2 and d_center < 110.0:
-            spd = 0.95  # Slows down in warning perimeter
+        elif item == 2 and self.is_real and d_center < 50.0:
+            spd = -1.1  # Deep toxic core backward pivot (biological connectome only)
+        elif item == 2 and self.is_real and d_center < 110.0:
+            spd = 0.95  # Slows down in warning perimeter (biological connectome only)
         elif self.bout_state == "pause":
             spd = 0.0  # Stationary sampling pause
         else:
             thrust = self.rates[24]
             spd = self.speed * self.speed_multiplier * (1.0 + min(0.4, thrust * 0.02))
+
 
         self.last_speed = spd
         self.is_paused = (spd == 0.0)
