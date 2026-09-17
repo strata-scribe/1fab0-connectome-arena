@@ -665,7 +665,7 @@ class FlyAgent:
         self.heading += yaw
         self.heading = (self.heading + math.pi) % (2 * math.pi) - math.pi
 
-        # Forward or backward stepping velocity
+        # Forward stepping velocity
         if item == 4 and self.escape_active:
             spd = 2.6 + (self.escape_timer / 25.0) * 2.6  # Smooth ballistic deceleration 5.2 -> 2.6
         elif self.recoil_timer > 0:
@@ -678,12 +678,15 @@ class FlyAgent:
                 self.heading = (plume_angle + math.pi + turn_sign * random.uniform(0.35, 0.7) + math.pi) % (2 * math.pi) - math.pi
         elif item == 6 and self.courtship_active and self.is_real:
             spd = 0.32 * self.speed_multiplier
-        elif item == 2 and self.is_real and not self.swap_antennae and d_center < 50.0:
-            spd = -1.1  # Deep toxic core backward pivot (normal biological connectome only)
-        elif item == 2 and self.is_real and not self.swap_antennae and d_center < 110.0:
-            spd = 0.95  # Slows down in warning perimeter (normal biological connectome only)
         elif self.bout_state == "pause":
             spd = 0.0  # Stationary sampling pause
+        elif item == 3 and co2_conc_center > 0.15 and self.is_real and not self.swap_antennae:
+            # Smoothly decelerate inside CO2 plume while turning away along gradient
+            spd = max(0.45, self.speed * self.speed_multiplier * (1.0 - co2_conc_center * 0.55))
+        elif item == 2 and self.is_real and not self.swap_antennae and d_center < 110.0:
+            # Smoothly decelerate near toxic high-concentration core while steering away
+            core_factor = (110.0 - d_center) / 110.0
+            spd = max(0.5, self.speed * self.speed_multiplier * (1.0 - core_factor * 0.5))
         else:
             thrust = self.rates[24]
             spd = self.speed * self.speed_multiplier * (1.0 + min(0.4, thrust * 0.02))
@@ -953,18 +956,22 @@ class ArenaEngine:
             if d0 >= 280 or self.active_item == 5:
                 break
 
-        shared_heading = random.uniform(0, 2 * math.pi)
-        offset_angle = random.uniform(0, 2 * math.pi)
-        sep_dist = 45.0 if self.active_item == 5 else 22.0
-        sx_a = max(35.0, min(ARENA_W - 35.0, sx - math.cos(offset_angle) * sep_dist))
-        sy_a = max(35.0, min(ARENA_H - 35.0, sy - math.sin(offset_angle) * sep_dist))
-        sx_b = max(35.0, min(ARENA_W - 35.0, sx + math.cos(offset_angle) * sep_dist))
-        sy_b = max(35.0, min(ARENA_H - 35.0, sy + math.sin(offset_angle) * sep_dist))
-
         if self.active_item == 5:
+            # Fully independent initial positions and headings across arena
+            sx_a = random.uniform(120, ARENA_W / 2 - 40)
+            sy_a = random.uniform(120, ARENA_H - 120)
+            sx_b = random.uniform(ARENA_W / 2 + 40, ARENA_W - 120)
+            sy_b = random.uniform(120, ARENA_H - 120)
             head_a = random.uniform(0, 2 * math.pi)
             head_b = random.uniform(0, 2 * math.pi)
         else:
+            shared_heading = random.uniform(0, 2 * math.pi)
+            offset_angle = random.uniform(0, 2 * math.pi)
+            sep_dist = 24.0
+            sx_a = max(35.0, min(ARENA_W - 35.0, sx - math.cos(offset_angle) * sep_dist))
+            sy_a = max(35.0, min(ARENA_H - 35.0, sy - math.sin(offset_angle) * sep_dist))
+            sx_b = max(35.0, min(ARENA_W - 35.0, sx + math.cos(offset_angle) * sep_dist))
+            sy_b = max(35.0, min(ARENA_H - 35.0, sy + math.sin(offset_angle) * sep_dist))
             head_a = (shared_heading + random.uniform(-0.25, 0.25)) % (2 * math.pi)
             head_b = (shared_heading + random.uniform(-0.25, 0.25)) % (2 * math.pi)
 
