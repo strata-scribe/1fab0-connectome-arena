@@ -978,10 +978,12 @@ function updateUI(state) {
     const labelB = lr.arm_label_b || (lr.flyB_real ? 'Biological Brain 🟢' : 'Control Twin 🔴');
     const rateTextA = lr.rate_a !== undefined ? ` · ${lr.rate_a} Hz (${lr.silent_a}% silent)` : '';
     const rateTextB = lr.rate_b !== undefined ? ` · ${lr.rate_b} Hz (${lr.silent_b}% silent)` : '';
+    const dispTextA = lr.disp_a !== undefined ? ` · Δd: ${lr.disp_a > 0 ? '+' : ''}${lr.disp_a}` : '';
+    const dispTextB = lr.disp_b !== undefined ? ` · Δd: ${lr.disp_b > 0 ? '+' : ''}${lr.disp_b}` : '';
 
     document.getElementById('unblind-detail').innerHTML = `
-      <div><strong>Fly A</strong>: <span style="font-weight:600; color:${lr.flyA_real ? '#3fb950' : '#f85149'}">${labelA}</span> (Efficiency: ${lr.ci_a.toFixed(2)}${rateTextA})</div>
-      <div><strong>Fly B</strong>: <span style="font-weight:600; color:${lr.flyB_real ? '#3fb950' : '#f85149'}">${labelB}</span> (Efficiency: ${lr.ci_b.toFixed(2)}${rateTextB})</div>
+      <div><strong>Fly A</strong>: <span style="font-weight:600; color:${lr.flyA_real ? '#3fb950' : '#f85149'}">${labelA}</span> (CI: ${lr.ci_a.toFixed(2)}${dispTextA}${rateTextA})</div>
+      <div><strong>Fly B</strong>: <span style="font-weight:600; color:${lr.flyB_real ? '#3fb950' : '#f85149'}">${labelB}</span> (CI: ${lr.ci_b.toFixed(2)}${dispTextB}${rateTextB})</div>
       <div style="margin-top:5px; padding-top:4px; border-top:1px dashed #21262d; font-size:0.72rem; color:#8b949e;">
         Condition: <span style="color:#58a6ff; font-weight:600;">${(lr.trial_mode || 'arm1').toUpperCase()}</span> · Twin: <span style="font-family:monospace; color:#58a6ff;">#${lr.ctrl_id !== undefined ? lr.ctrl_id : '0'}${poolText} (${lr.ctrl_hash || 'off-harness'}${drawsText})</span>
       </div>

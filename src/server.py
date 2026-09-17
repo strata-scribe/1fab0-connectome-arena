@@ -345,6 +345,12 @@ class ArenaEngine:
 
         ci_a = max(0.0, (d0_a - final_a) / max(1.0, d0_a))
         ci_b = max(0.0, (d0_b - final_b) / max(1.0, d0_b))
+        ci_unclipped_a = round((d0_a - final_a) / max(1.0, d0_a), 2)
+        ci_unclipped_b = round((d0_b - final_b) / max(1.0, d0_b), 2)
+        disp_a = round(d0_a - final_a, 1)
+        disp_b = round(d0_b - final_b, 1)
+        path_a = round(sum(math.hypot(self.flyA.full_trajectory[i][0] - self.flyA.full_trajectory[i-1][0], self.flyA.full_trajectory[i][1] - self.flyA.full_trajectory[i-1][1]) for i in range(1, len(self.flyA.full_trajectory))), 1) if len(self.flyA.full_trajectory) > 1 else 0.0
+        path_b = round(sum(math.hypot(self.flyB.full_trajectory[i][0] - self.flyB.full_trajectory[i-1][0], self.flyB.full_trajectory[i][1] - self.flyB.full_trajectory[i-1][1]) for i in range(1, len(self.flyB.full_trajectory))), 1) if len(self.flyB.full_trajectory) > 1 else 0.0
 
         ci_real = ci_a if self.flyA.is_real else ci_b
         ci_shuf = ci_b if self.flyA.is_real else ci_a
@@ -407,6 +413,12 @@ class ArenaEngine:
             "silent_b": self.flyB.get_silent_fraction(),
             "ci_a": round(ci_a, 2),
             "ci_b": round(ci_b, 2),
+            "ci_unclipped_a": ci_unclipped_a,
+            "ci_unclipped_b": ci_unclipped_b,
+            "disp_a": disp_a,
+            "disp_b": disp_b,
+            "path_a": path_a,
+            "path_b": path_b,
             "ctrl_id": self.active_ctrl_id,
             "ctrl_hash": hash_repr,
             "pool_size": pool_sz,
@@ -430,6 +442,12 @@ class ArenaEngine:
             "silent_b": self.flyB.get_silent_fraction(),
             "ci_a": round(ci_a, 2),
             "ci_b": round(ci_b, 2),
+            "ci_unclipped_a": ci_unclipped_a,
+            "ci_unclipped_b": ci_unclipped_b,
+            "disp_a": disp_a,
+            "disp_b": disp_b,
+            "path_a": path_a,
+            "path_b": path_b,
             "ci_real": round(ci_real, 2),
             "ci_shuf": round(ci_shuf, 2),
             "ci_diff": round(ci_real - ci_shuf, 2),

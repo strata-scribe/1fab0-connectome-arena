@@ -1,25 +1,22 @@
 """
-Arm 2 Control Generator (Grant 1fab0 — Second Null)
+Arm 2 Control Generator (Grant 1fab0 — Second Null & Quire v4 Dynamics Battery)
 
-Generates the randomised-dynamics control for Proposal #20 Arm 2:
-  - Topology: IDENTICAL to G_traced (same sparsity pattern, same NT signs)
-  - Dynamics:  Weight MAGNITUDES uniformly randomised within each neurotransmitter class
-  - Encoder:   IDENTICAL bilateral antenna sensory projection to ORN_L/ORN_R
-  - Decoder:   IDENTICAL read-out from DNa01 (22), DNa02 (23), thrust DN (24)
+Generates the randomised-dynamics controls for Proposal #20 Arm 2 and extended v4 benchmarks:
+  - Topology: IDENTICAL to G_traced (same sparsity pattern)
+  - Dynamics: Weight MAGNITUDES uniformly randomised within each neurotransmitter class
+  - Encoder:  IDENTICAL bilateral antenna sensory projection to ORN_L/ORN_R
+  - Decoder:  IDENTICAL read-out from DNa01 (22), DNa02 (23), thrust DN (24)
+  - Time Constants (v4): Randomized per-neuron membrane time constants tau_i ~ U[tau_min, tau_max]
+  - Sign Scrambling (v4): Randomized / permuted synaptic signs to test sensitivity to excitation/inhibition structure
 
-This tests whether the biological weight *values* carry information beyond what any
-nonlinear system of the same sign-graph topology would produce under identical
-sensorimotor I/O.
-
-Construction invariants preserved:
-  - sign(W_rand[u,v]) == sign(W_bio[u,v])  for all (u,v)
-  - Bilateral symmetry: W_rand[u,v] == W_rand[SYM(u), SYM(v)]
-  - Excitatory range: U[0.5, 3.5]  (bio range: 0.6 – 2.2)
-  - Inhibitory range: U[-2.5, -0.5] (bio range: -1.4)
-  - All diagonal self-connections remain zero
+This tests whether biological steering depends on specific synapse-count ratios,
+time constants, or E/I sign layout beyond what any dynamical system on G_traced
+produces under identical sensorimotor I/O.
 """
 
+import math
 import random
+from typing import Optional, Tuple
 import numpy as np
 from src.connectome import FlyConnectome, SYM_PAIR
 
@@ -79,9 +76,161 @@ def generate_randomised_dynamics_control(rng=None):
     return W_rand
 
 
+def generate_randomised_time_constants(
+    tau_min: float = 0.01,
+    tau_max: float = 0.10,
+    enforce_symmetry: bool = True,
+    rng: Optional[random.Random] = None
+) -> np.ndarray:
+    """
+    Generate randomized per-neuron membrane time constants tau_i ~ U[tau_min, tau_max].
+    If enforce_symmetry is True, tau[u] == tau[SYM(u)] is enforced.
+    
+    Returns
+    -------
+    np.ndarray of shape (25,) float32
+    """
+    if rng is None:
+        rng = random.Random()
+
+    tau = np.zeros(NUM_NEURONS, dtype=np.float32)
+    assigned = set()
+
+    for u in range(NUM_NEURONS):
+        if enforce_symmetry:
+            if u in assigned:
+                continue
+            u_s = SYM_PAIR[u]
+            val = rng.uniform(tau_min, tau_max)
+            tau[u] = val
+            tau[u_s] = val
+            assigned.add(u)
+            assigned.add(u_s)
+        else:
+            tau[u] = rng.uniform(tau_min, tau_max)
+
+    return tau
+
+
+def generate_sign_permuted_control(
+    W_base: Optional[np.ndarray] = None,
+    permute_mode: str = "shuffle",
+    enforce_symmetry: bool = True,
+    rng: Optional[random.Random] = None
+) -> np.ndarray:
+    """
+    Generate a control matrix with identical nonzero topology and magnitude
+    distribution, but with synaptic signs permuted or flipped.
+    
+    Parameters
+    ----------
+    W_base : np.ndarray or None
+        Base matrix to scramble (defaults to W_bio).
+    permute_mode : str
+        'shuffle': Shuffles the existing signs among canonical edges, exactly preserving
+                   the overall E/I count while scrambling their positions.
+        'flip': Independently randomizes each canonical edge sign uniformly from {-1, +1}.
+    enforce_symmetry : bool
+        If True, contralateral partner edges share the same sign.
+    rng : random.Random or None
+        Seeded RNG.
+        
+    Returns
+    -------
+    np.ndarray of shape (25, 25) float32
+    """
+    if rng is None:
+        rng = random.Random()
+
+    if W_base is None:
+        connectome = FlyConnectome()
+        W_base = connectome.W
+
+    W_out = np.zeros((NUM_NEURONS, NUM_NEURONS), dtype=np.float32)
+
+    canonical_edges = []
+    assigned = set()
+    for u in range(NUM_NEURONS):
+        for v in range(NUM_NEURONS):
+            if (u, v) in assigned:
+                continue
+            if W_base[u, v] == 0.0:
+                continue
+            u_s = SYM_PAIR[u]
+            v_s = SYM_PAIR[v]
+            canonical_edges.append((u, v, u_s, v_s))
+            assigned.add((u, v))
+            assigned.add((u_s, v_s))
+
+    if permute_mode == "shuffle":
+        orig_signs = [1.0 if W_base[u, v] > 0 else -1.0 for (u, v, _, _) in canonical_edges]
+        signs = orig_signs.copy()
+        if len(set(signs)) > 1:
+            for _ in range(100):
+                rng.shuffle(signs)
+                if any(signs[k] != orig_signs[k] for k in range(len(canonical_edges))):
+                    break
+    else:  # 'flip', 'random', or 'scramble'
+        signs = [1.0 if rng.random() < 0.5 else -1.0 for _ in canonical_edges]
+
+    for idx, (u, v, u_s, v_s) in enumerate(canonical_edges):
+        mag = abs(float(W_base[u, v]))
+        val = mag * signs[idx]
+        W_out[u, v] = val
+        if enforce_symmetry:
+            W_out[u_s, v_s] = val
+        else:
+            other_sign = 1.0 if rng.random() < 0.5 else -1.0
+            W_out[u_s, v_s] = abs(float(W_base[u_s, v_s])) * other_sign
+
+    return W_out
+
+
+def generate_arm2_extended_control(
+    rng: Optional[random.Random] = None,
+    randomize_magnitudes: bool = True,
+    randomize_tau: bool = False,
+    permute_signs: bool = False,
+    tau_min: float = 0.01,
+    tau_max: float = 0.10,
+    enforce_symmetry: bool = True
+) -> Tuple[np.ndarray, Optional[np.ndarray]]:
+    """
+    Unified generator for Arm 2 and v4 extended dynamics controls.
+    Returns (W_ctrl, tau_ctrl).
+    """
+    if rng is None:
+        rng = random.Random()
+
+    if randomize_magnitudes:
+        W_ctrl = generate_randomised_dynamics_control(rng=rng)
+    else:
+        connectome = FlyConnectome()
+        W_ctrl = connectome.W.copy()
+
+    if permute_signs:
+        W_ctrl = generate_sign_permuted_control(
+            W_base=W_ctrl,
+            permute_mode="shuffle",
+            enforce_symmetry=enforce_symmetry,
+            rng=rng
+        )
+
+    tau_ctrl = None
+    if randomize_tau:
+        tau_ctrl = generate_randomised_time_constants(
+            tau_min=tau_min,
+            tau_max=tau_max,
+            enforce_symmetry=enforce_symmetry,
+            rng=rng
+        )
+
+    return W_ctrl, tau_ctrl
+
+
 def verify_arm2_control(W_bio, W_rand, verbose=False):
     """
-    Verify all Arm 2 construction invariants hold.
+    Verify all standard Arm 2 construction invariants hold.
     Returns (passed: bool, report: str).
     """
     checks = []
@@ -129,6 +278,70 @@ def verify_arm2_control(W_bio, W_rand, verbose=False):
     passed = sign_ok and sparsity_ok and sym_ok and range_ok and self_ok
     report = "\n".join(checks)
 
+    if verbose:
+        print(report)
+
+    return passed, report
+
+
+def verify_arm2_extended_control(W_bio, W_ctrl, tau_ctrl=None, signs_permuted=False, verbose=False):
+    """
+    Verify invariants for extended dynamics controls (allowing sign permutations and custom tau).
+    """
+    checks = []
+
+    # 1. Sparsity
+    sparsity_ok = np.array_equal(W_bio != 0, W_ctrl != 0)
+    checks.append(f"[{'PASS' if sparsity_ok else 'FAIL'}] Nonzero topology identical to G_traced")
+
+    # 2. Bilateral symmetry of W
+    sym_ok = True
+    for u in range(NUM_NEURONS):
+        for v in range(NUM_NEURONS):
+            if not np.isclose(W_ctrl[u, v], W_ctrl[SYM_PAIR[u], SYM_PAIR[v]], atol=1e-5):
+                sym_ok = False
+                break
+    checks.append(f"[{'PASS' if sym_ok else 'FAIL'}] Bilateral symmetry of weights")
+
+    # 3. Sign check
+    if signs_permuted:
+        # Check that signs are not identically equal to bio (unless by rare chance), but nonzero pattern intact
+        diff_count = sum(
+            1 for u in range(NUM_NEURONS) for v in range(NUM_NEURONS)
+            if W_bio[u, v] != 0 and np.sign(W_bio[u, v]) != np.sign(W_ctrl[u, v])
+        )
+        sign_check = diff_count > 0
+        checks.append(f"[{'PASS' if sign_check else 'FAIL'}] Synaptic signs permuted ({diff_count} flipped edges)")
+    else:
+        sign_check = all(
+            np.sign(W_bio[u, v]) == np.sign(W_ctrl[u, v])
+            for u in range(NUM_NEURONS) for v in range(NUM_NEURONS)
+        )
+        checks.append(f"[{'PASS' if sign_check else 'FAIL'}] NT-signs preserved")
+
+    # 4. Zero self-connections
+    self_ok = all(W_ctrl[i, i] == 0.0 for i in range(NUM_NEURONS))
+    checks.append(f"[{'PASS' if self_ok else 'FAIL'}] Zero self-connections")
+
+    # 5. Tau checks
+    tau_ok = True
+    if tau_ctrl is not None:
+        if len(tau_ctrl) != NUM_NEURONS:
+            tau_ok = False
+        elif np.any(tau_ctrl <= 0.0):
+            tau_ok = False
+        else:
+            # Check bilateral symmetry of tau
+            tau_sym_ok = all(
+                np.isclose(tau_ctrl[u], tau_ctrl[SYM_PAIR[u]], atol=1e-5)
+                for u in range(NUM_NEURONS)
+            )
+            if not tau_sym_ok:
+                tau_ok = False
+        checks.append(f"[{'PASS' if tau_ok else 'FAIL'}] Tau vector valid and bilateral-symmetric")
+
+    passed = sparsity_ok and sym_ok and sign_check and self_ok and tau_ok
+    report = "\n".join(checks)
     if verbose:
         print(report)
 
