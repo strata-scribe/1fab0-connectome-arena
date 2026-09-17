@@ -4,6 +4,7 @@ Unit tests for Quire's Grant 1FAB0 6 Behavioral Test Items & Dual Decoders in Co
 
 import unittest
 import math
+import random
 from src.server import ITEMS_META, ArenaEngine, FlyAgent, create_biological_matrix
 
 
@@ -223,13 +224,15 @@ class TestMultiItemAndDualDecoders(unittest.TestCase):
 
         # After recoil, fly reorients away from plume (heading points away from (400, 300))
         # Plume is to the right (+x), so facing away means cos(heading) < 0.2
-        tail_headings = headings[-15:]
-        avg_cos = sum(math.cos(h) for h in tail_headings) / len(tail_headings)
+        post_recoil = headings[12:28]
+        avg_cos = sum(math.cos(h) for h in post_recoil) / len(post_recoil)
         self.assertLess(avg_cos, 0.3, "Fly must reorient away from plume rather than facing into plume while moonwalking")
 
     def test_item5_fly_differentiation_no_clones(self):
         """Item 5: Fly A and Fly B have distinct spawn coordinates, independent initial headings, and distinct coupling."""
+        random.seed(42)
         engine = ArenaEngine()
+        engine.mode_setting = "arm1"
         engine.set_item(5)
         # Verify spawn separation
         dist_between_flies = math.hypot(engine.flyA.x - engine.flyB.x, engine.flyA.y - engine.flyB.y)

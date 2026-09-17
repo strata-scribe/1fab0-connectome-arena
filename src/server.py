@@ -110,20 +110,33 @@ ITEMS_META = {
 def create_biological_matrix():
     W = [[0.0] * NUM_NEURONS for _ in range(NUM_NEURONS)]
     # Antennal Lobe (AL)
-    W[0][2] = 2.0; W[1][3] = 2.0
-    W[0][5] = 0.9; W[1][4] = 0.9
-    W[4][2] = -1.4; W[5][3] = -1.4
-    # Lateral Horn / Mushroom Body
+    # Neurons 0 (L) & 1 (R): attractant ORN inputs
+    # Neurons 4 (L) & 5 (R): aversive / repellent / CO2 ORN inputs
+    # Neurons 2 (L) & 3 (R): projection neurons (PNs)
+    W[0][2] = 2.2; W[1][3] = 2.2
+    
+    # Contralateral aversive cross-inhibition and steering:
+    # Left aversive (4) inhibits Left PN (2) and excites Right steering (15 -> 23)
+    # Right aversive (5) inhibits Right PN (3) and excites Left steering (14 -> 22)
+    W[4][2] = -1.8; W[5][3] = -1.8
+    W[4][15] = 1.8; W[5][14] = 1.8
+
+    # Lateral Horn / Mushroom Body (neurons 6-13)
     for i in range(6, 10): W[2][i] = 1.2
     for i in range(10, 14): W[3][i] = 1.2
+    
     # Central Complex Steering (LAL/FB)
-    W[2][14] = 1.6; W[3][15] = 1.6
-    W[14][22] = 2.2; W[15][23] = 2.2
-    # Upwind thrust
+    # Neuron 14 drives Left turn (22, DNa02_L)
+    # Neuron 15 drives Right turn (23, DNa02_R)
+    W[2][14] = 1.8; W[3][15] = 1.8
+    W[14][22] = 2.4; W[15][23] = 2.4
+    
+    # Upwind thrust (neuron 24, DNp09)
     for i in range(6, 14): W[i][24] = 0.6
-    # Lobula to Giant Fibre (DNp01 escape command, neurons 20 and 21)
-    for i in range(6, 10): W[i][20] = 1.8
-    for i in range(10, 14): W[i][21] = 1.8
+    
+    # Lobula to Giant Fibre (DNp01 escape command, neuron 20)
+    for i in range(6, 14): W[i][20] = 2.2
+    
     # Recurrent Central Complex Ring Attractor (symmetric bilateral cycle)
     cycle = [15, 14, 16, 18, 20, 21, 19, 17]
     for idx in range(len(cycle)):
@@ -132,6 +145,11 @@ def create_biological_matrix():
         v_prev = cycle[(idx - 1 + len(cycle)) % len(cycle)]
         W[u][v_next] = 0.3
         W[u][v_prev] = 0.3
+
+    # Bilateral Reciprocal Inhibition (LAL/FB steering premotor interneurons)
+    # Prevents co-activation saturation and enables bistable symmetry breaking
+    W[14][15] = -1.5
+    W[15][14] = -1.5
     return W
 
 def generate_shuffled_matrix(W_orig, num_swaps=40):
@@ -384,7 +402,7 @@ class FlyAgent:
             loom_urgency = max(0.0, min(35.0, (loom_r / max(20.0, d_loom)) * 25.0))
             for k in range(6, 14):
                 I_ext[k] += loom_urgency * 1.2
-            I_ext[0] = c_l * 0.4; I_ext[1] = c_r * 0.4
+            I_ext[0] = 0.0; I_ext[1] = 0.0
 
         elif item == 5:
             # Item 5: Optomotor Yaw Steering
@@ -394,7 +412,7 @@ class FlyAgent:
                 I_ext[15] += 16.0
             else:
                 I_ext[14] += 16.0
-            I_ext[0] = c_l * 0.3; I_ext[1] = c_r * 0.3
+            I_ext[0] = 0.0; I_ext[1] = 0.0
 
         elif item == 6:
             # Item 6: Male Courtship Song Initiation
@@ -445,45 +463,19 @@ class FlyAgent:
 
         self.sim_steps += 1
 
-        # Calculate Quire's Discrete Decoder firing rates
+        # Calculate Quire's Discrete Decoder firing rates (purely from neural rates)
         # 1. Forward-walking DNp09
-        self.rate_dnp09 = max(0.0, min(65.0, self.rates[24] * 1.5 + (12.0 if item != 3 or d_co2 >= co2_r else 0.5)))
+        self.rate_dnp09 = max(0.0, min(65.0, self.rates[24] * 1.5 + 12.0 - (self.rates[4] + self.rates[5]) * 0.3))
 
         # 2. Backward-walking moonwalker MDN
-        if item == 3:
-            # Quire: rate(MDN) vs rate(DNp09)
-            co2_drive = (self.rates[4] + self.rates[5])
-            if co2_conc_center > 0.15 and (self.is_real or co2_drive > 12.0):
-                self.rate_mdn = max(35.0, min(65.0, 32.0 + co2_conc_center * 22.0 + co2_drive * 0.3))
-                self.rate_dnp09 = max(0.0, min(14.0, 16.0 - co2_conc_center * 15.0))
-            else:
-                self.rate_mdn = max(0.0, min(12.0, co2_drive * 0.15))
-                self.rate_dnp09 = max(12.0, min(65.0, self.rates[24] * 1.5 + 12.0))
-        elif item == 2:
-            # Item 2: Concentration Reversal
-            core_conc = max(0.0, 1.0 - d_center / 110.0) if d_center < 110.0 else 0.0
-            dm5_activity = (self.rates[4] + self.rates[5])
-            if core_conc > 0.0:
-                self.rate_mdn = max(8.0, min(42.0, 10.0 + core_conc * 22.0 + dm5_activity * 0.3))
-                self.rate_dnp09 = max(2.0, min(35.0, 18.0 - core_conc * 14.0))
-            else:
-                self.rate_mdn = max(0.0, min(6.0, dm5_activity * 0.1))
-                self.rate_dnp09 = max(18.0, min(55.0, 24.0 + self.rates[24] * 0.8))
-        elif item == 1 and (d_rep_l < 75.0 or d_rep_r < 75.0):
-            self.rate_mdn = max(12.0, min(40.0, 14.0 + (self.rates[4] + self.rates[5]) * 0.4))
-            self.rate_dnp09 = max(4.0, min(45.0, 16.0 - self.rates[4] * 0.2))
-        else:
-            self.rate_mdn = max(0.0, min(12.0, (self.rates[4] + self.rates[5]) * 0.15))
-
+        dm5_activity = (self.rates[4] + self.rates[5])
+        self.rate_mdn = max(0.0, min(65.0, dm5_activity * 1.35))
         self.delta_hz = round(self.rate_dnp09 - self.rate_mdn, 1)
 
         # 3. Looming Giant Fibre DNp01
         if item == 4:
-            loom_urg = loom_r / max(15.0, d_loom)
-            # Biological giant fiber escape requires synaptic transmission through lobula neurons on real connectome
-            escape_threshold_met = self.is_real and ((self.rates[20] > 18.0) or (loom_urg > 0.42))
-            if escape_threshold_met:
-                self.rate_dnp01 = round(min(180.0, 98.0 + loom_urg * 45.0 + self.rates[20] * 1.8), 1)
+            self.rate_dnp01 = round(min(180.0, self.rates[20] * 3.8), 1)
+            if self.rate_dnp01 > 45.0:
                 if not self.escape_triggered:
                     self.escape_triggered = True
                     self.escape_step = self.sim_steps
@@ -496,7 +488,6 @@ class FlyAgent:
                     loom_y = loom.get("y", 100)
                     self.heading = math.atan2(self.y - loom_y, self.x - loom_x) + random.uniform(-0.15, 0.15)
             else:
-                self.rate_dnp01 = round(min(40.0, (loom_urg * 25.0 if self.is_real else 5.0) + self.rates[20] * 0.5), 1)
                 if self.escape_timer <= 0:
                     self.escape_active = False
         else:
@@ -518,44 +509,31 @@ class FlyAgent:
             if rot_dir > 0:
                 self.rate_hs_r = round(min(250.0, 120.0 + self.rates[15] * 4.5), 1)
                 self.rate_hs_l = round(max(0.0, 10.0 + self.rates[14] * 0.6), 1)
-                if self.is_real:
-                    self.rate_dna02_r = round(min(220.0, 80.0 + self.rates[23] * 4.5), 1)
-                    self.rate_dna02_l = round(max(0.0, 12.0 + self.rates[22] * 0.8), 1)
-                else:
-                    self.rate_dna02_r = round(max(0.0, self.rates[23] * 4.0 + random.uniform(8.0, 18.0)), 1)
-                    self.rate_dna02_l = round(max(0.0, self.rates[22] * 4.0 + random.uniform(8.0, 18.0)), 1)
             else:
                 self.rate_hs_l = round(min(250.0, 120.0 + self.rates[14] * 4.5), 1)
                 self.rate_hs_r = round(max(0.0, 10.0 + self.rates[15] * 0.6), 1)
-                if self.is_real:
-                    self.rate_dna02_l = round(min(220.0, 80.0 + self.rates[22] * 4.5), 1)
-                    self.rate_dna02_r = round(max(0.0, 12.0 + self.rates[23] * 0.8), 1)
-                else:
-                    self.rate_dna02_l = round(max(0.0, self.rates[22] * 4.0 + random.uniform(8.0, 18.0)), 1)
-                    self.rate_dna02_r = round(max(0.0, self.rates[23] * 4.0 + random.uniform(8.0, 18.0)), 1)
         else:
             self.rate_hs_l = round(self.rates[14] * 2.0, 1)
             self.rate_hs_r = round(self.rates[15] * 2.0, 1)
 
         # 5. Courtship song neurons: pC1 and pIP10
         if item == 6:
-            if d_fem < 38.0 and self.is_real:
-                self.rate_pc1 = round(min(60.0, 34.0 + (38.0 - d_fem) * 1.1 + self.rates[16] * 0.4), 1)
-                self.rate_pip10 = round(min(80.0, 44.0 + (38.0 - d_fem) * 1.5 + self.rates[17] * 0.4), 1)
+            if d_fem < 38.0 and (self.rates[16] > 12.0 or self.rates[17] > 12.0):
+                self.rate_pc1 = round(min(60.0, 20.0 + self.rates[16] * 1.8), 1)
+                self.rate_pip10 = round(min(80.0, 25.0 + self.rates[17] * 2.2), 1)
                 self.courtship_active = True
                 self.courtship_ticks += 1
             else:
-                self.rate_pc1 = round(max(0.0, 1.2 + random.uniform(-0.2, 0.2)), 1)
-                self.rate_pip10 = round(max(0.0, 3.5 + random.uniform(-0.5, 0.5)), 1)
+                self.rate_pc1 = round(max(0.0, 1.2 + self.rates[16] * 0.2), 1)
+                self.rate_pip10 = round(max(0.0, 3.5 + self.rates[17] * 0.2), 1)
                 self.courtship_active = False
         else:
             self.rate_pc1 = round(max(0.0, 1.0 + random.uniform(-0.2, 0.2)), 1)
             self.rate_pip10 = round(max(0.0, 2.5 + random.uniform(-0.5, 0.5)), 1)
             self.courtship_active = False
 
-        # Biological locomotion bout / pause state machine
-        if (item == 4 and self.escape_active) or (item == 5) or (item == 3 and co2_conc_center > 0.15 and self.is_real) or (item == 2 and d_center < 110.0 and self.is_real):
-            # Suppress casual pauses during high urgency (biological connectome only)
+        # Locomotion bout / pause state machine (identical for all flies)
+        if (item == 4 and self.escape_active) or (item == 5) or (item == 3 and co2_conc_center > 0.15) or (item == 2 and d_center < 110.0):
             self.bout_state = "walk"
         elif item == 6 and self.courtship_active:
             self.bout_state = "court"
@@ -571,73 +549,27 @@ class FlyAgent:
                     self.bout_timer = random.randint(18, 45)
                     self.heading += random.choice([-1, 1]) * random.uniform(0.05, 0.14)
 
-        # Item 3: Aversive encounter triggers brief recoil step (2-4 ticks) in biological connectome only
-        if item == 3 and self.is_real:
-            if co2_conc_center > 0.25:
+        # Item 3: Aversive encounter triggers brief recoil step (2-4 ticks) on aversive surge
+        if item == 3:
+            co2_drive = (self.rates[4] + self.rates[5])
+            if co2_drive > 15.0:
                 if not self.co2_entered:
                     self.co2_entered = True
                     self.recoil_timer = random.randint(2, 4)
                     self.bout_state = "walk"
-            elif co2_conc_center < 0.12:
+            elif co2_drive < 6.0:
                 self.co2_entered = False
 
-        # Motor kinematics & steering
+        # Motor kinematics & steering: Pure neural steering driven by DNa02_R vs DNa02_L
         self.wander_phase += 0.04
         casting_torque = math.sin(self.wander_phase) * 0.015 + random.uniform(-0.003, 0.003)
-        if c_l + c_r > 2.0:
-            casting_torque *= 0.35
+        if item in (4, 5) or (c_l + c_r > 2.0):
+            casting_torque *= 0.3
         max_yaw = 0.055
 
-        if item == 5:
-            # Optomotor: wide circular arcs matching visual stripes
-            if self.is_real and not self.swap_antennae:
-                steer_bias = (self.rate_dna02_r - self.rate_dna02_l) * 0.00022 * self.optomotor_gain
-                yaw = max(-0.032, min(0.032, steer_bias + casting_torque * 0.35))
-            elif self.swap_antennae:
-                # Inverted optomotor: steers against visual motion
-                steer_bias = -(self.rate_dna02_r - self.rate_dna02_l) * 0.00020 * self.optomotor_gain
-                yaw = max(-0.032, min(0.032, steer_bias + casting_torque * 0.35))
-            else:
-                ctrl_bias = (self.rate_dna02_r - self.rate_dna02_l) * 0.00008
-                yaw = max(-0.025, min(0.025, ctrl_bias + casting_torque * 1.1 + math.sin(self.wander_phase * 0.7) * 0.015))
-        elif item == 4 and self.escape_active:
-            yaw = casting_torque * 0.1
-        elif item == 3 and co2_conc_center > 0.12 and (self.is_real or self.swap_antennae):
-            # Biological fly steers smoothly away from noxious plume center;
-            # Sensory-crossing fly has inverted tropotaxis -> steers INTO noxious plume center!
-            plume_angle = math.atan2(co2["y"] - self.y, co2["x"] - self.x)
-            diff = (self.heading - (plume_angle + math.pi) + math.pi) % (2 * math.pi) - math.pi
-            steer = -0.045 if diff > 0 else 0.045
-            if self.swap_antennae:
-                steer = -steer  # Inverted: positive feedback towards danger
-            yaw = max(-max_yaw * 1.2, min(max_yaw * 1.2, (turn_r - turn_l) * 0.04 + steer + casting_torque * 0.3))
-        elif item == 2 and d_center < 110.0 and (self.is_real or self.swap_antennae):
-            # Biological fly avoids high-concentration toxic core;
-            # Sensory-crossing fly steers INTO high-concentration core!
-            target_angle = math.atan2(target_y - self.y, target_x - self.x)
-            diff = (self.heading - target_angle + math.pi) % (2 * math.pi) - math.pi
-            steer = 0.028 if diff > 0 else -0.028
-            if self.swap_antennae:
-                steer = -steer  # Inverted: homes into toxic center
-            yaw = max(-max_yaw * 1.2, min(max_yaw * 1.2, (turn_r - turn_l) * 0.04 + steer + casting_torque * 0.4))
-        elif item == 1 and (d_rep_l < 75.0 or d_rep_r < 75.0) and (self.is_real or self.swap_antennae):
-            # Biological fly avoids repellent;
-            # Sensory-crossing fly steers INTO repellent!
-            rep = engine.repellent if engine else {"x": ARENA_W - target_x, "y": ARENA_H - target_y}
-            rep_angle = math.atan2(rep["y"] - self.y, rep["x"] - self.x)
-            diff = (self.heading - rep_angle + math.pi) % (2 * math.pi) - math.pi
-            steer = 0.035 if diff > 0 else -0.035
-            if self.swap_antennae:
-                steer = -steer  # Inverted: dives into repellent
-            yaw = max(-max_yaw * 1.1, min(max_yaw * 1.1, (turn_r - turn_l) * 0.045 + steer + casting_torque * 0.4))
-        elif item == 6 and self.courtship_active and self.is_real:
-            fem = engine.female_target if engine else {"x": target_x, "y": target_y}
-            fem_angle = math.atan2(fem["y"] - self.y, fem["x"] - self.x)
-            diff = (fem_angle - self.heading + math.pi) % (2 * math.pi) - math.pi
-            yaw = max(-0.035, min(0.035, diff * 0.2 + casting_torque * 0.2))
-        else:
-            # Control flies & baseline: spontaneous exploration + scrambled synaptic readout
-            yaw = max(-max_yaw, min(max_yaw, (turn_r - turn_l) * 0.045 + casting_torque))
+        # Pure neural steering: (turn_r - turn_l) * gain + spontaneous exploratory casting
+        steer_gain = 0.0010 if item == 5 else 0.045
+        yaw = max(-max_yaw, min(max_yaw, (turn_r - turn_l) * steer_gain + casting_torque))
 
         # Biological Thigmotaxis (Wall-Following & Soft Perimeter Steering - physical boundary property for all bodies)
         WALL_MARGIN = 32.0
@@ -665,28 +597,28 @@ class FlyAgent:
         self.heading += yaw
         self.heading = (self.heading + math.pi) % (2 * math.pi) - math.pi
 
-        # Forward stepping velocity
+        # Forward stepping velocity: purely modulated by neural rates
         if item == 4 and self.escape_active:
-            spd = 2.6 + (self.escape_timer / 25.0) * 2.6  # Smooth ballistic deceleration 5.2 -> 2.6
+            spd = 2.6 + (self.escape_timer / 25.0) * 2.6  # Smooth ballistic deceleration
         elif self.recoil_timer > 0:
             self.recoil_timer -= 1
             spd = -0.75  # Brief backward recoil step (~50-100ms)
             if self.recoil_timer == 0:
-                # Decisive reorientation turn away from noxious plume
-                plume_angle = math.atan2(co2["y"] - self.y, co2["x"] - self.x)
-                turn_sign = 1 if (d_co2_l < d_co2_r) else -1
-                self.heading = (plume_angle + math.pi + turn_sign * random.uniform(0.35, 0.7) + math.pi) % (2 * math.pi) - math.pi
-        elif item == 6 and self.courtship_active and self.is_real:
+                # Biological turnaround saccade on noxious contact (~180 deg reversal)
+                turn_dir = 1 if (turn_r >= turn_l) else -1
+                self.heading = (self.heading + math.pi + turn_dir * random.uniform(0.1, 0.4) + math.pi) % (2 * math.pi) - math.pi
+        elif item == 6 and self.courtship_active:
             spd = 0.32 * self.speed_multiplier
         elif self.bout_state == "pause":
             spd = 0.0  # Stationary sampling pause
-        elif item == 3 and co2_conc_center > 0.15 and self.is_real and not self.swap_antennae:
+        elif item == 3 and (self.rates[4] + self.rates[5] > 12.0):
             # Smoothly decelerate inside CO2 plume while turning away along gradient
-            spd = max(0.45, self.speed * self.speed_multiplier * (1.0 - co2_conc_center * 0.55))
-        elif item == 2 and self.is_real and not self.swap_antennae and d_center < 110.0:
+            co2_drive = min(1.0, (self.rates[4] + self.rates[5]) / 40.0)
+            spd = max(0.45, self.speed * self.speed_multiplier * (1.0 - co2_drive * 0.55))
+        elif item == 2 and (self.rates[4] + self.rates[5] > 8.0):
             # Smoothly decelerate near toxic high-concentration core while steering away
-            core_factor = (110.0 - d_center) / 110.0
-            spd = max(0.5, self.speed * self.speed_multiplier * (1.0 - core_factor * 0.5))
+            core_drive = min(1.0, (self.rates[4] + self.rates[5]) / 35.0)
+            spd = max(0.5, self.speed * self.speed_multiplier * (1.0 - core_drive * 0.5))
         else:
             thrust = self.rates[24]
             spd = self.speed * self.speed_multiplier * (1.0 + min(0.4, thrust * 0.02))
@@ -1285,7 +1217,7 @@ class ArenaEngine:
                 # Optomotor stripes rotate
                 self.optomotor["angle"] = (self.optomotor["angle"] + self.optomotor["dir"] * self.optomotor["speed"]) % (2 * math.pi)
                 self.grating_history.append(self.optomotor["dir"])
-                if self.step_count % 160 == 0:
+                if self.step_count > 0 and self.step_count % 30 == 0:
                     # Invert rotation to test bidirectional optomotor turning
                     self.optomotor["dir"] = -self.optomotor["dir"]
 
