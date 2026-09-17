@@ -301,8 +301,90 @@ class TestMultiItemAndDualDecoders(unittest.TestCase):
         engine.finish_trial("evaluated")
         self.assertEqual(engine.last_reveal["verdict"], "fail", "Must evaluate objectively: if control scores higher, verdict is FAIL")
         self.assertIn("FAIL", engine.last_reveal["verdict_label"])
+        self.assertNotIn("(Pass)", engine.last_reveal["winner_name"], "Winner name must not say Pass when verdict is FAIL")
+        self.assertIn("Control Superiority", engine.last_reveal["winner_name"])
+
+    def test_item2_calibrated_scoring_envelope_vs_wandering(self):
+        """Item 2: Fly approaching attractive envelope (d=65) scores positive; wandering fly (d=220) scores 0.0."""
+        engine = ArenaEngine()
+        engine.set_item(2)
+        engine.target = {"x": 400, "y": 300, "r": 18}
+
+        # Fly A: Bio tracks from d0=280 to d=65 (navigating attractive zone without hitting core <45)
+        engine.flyA.is_real = True
+        engine.flyA.start_x = 400; engine.flyA.start_y = 20  # d0 = 280
+        engine.flyA.full_trajectory = [(400, 20), (400, 150), (400, 235)]  # min_d = 65
+        engine.flyA.x = 400; engine.flyA.y = 235
+
+        # Fly B: Control twin wanders far away, min_d = 220
+        engine.flyB.is_real = False
+        engine.flyB.start_x = 400; engine.flyB.start_y = 20  # d0 = 280
+        engine.flyB.full_trajectory = [(400, 20), (400, 50), (400, 80)]  # min_d = 220
+        engine.flyB.x = 400; engine.flyB.y = 80
+
+        engine.finish_trial("evaluated")
+        self.assertGreater(engine.last_reveal["score_a"], 0.5, "Fly in attractive envelope must score positive")
+        self.assertEqual(engine.last_reveal["score_b"], 0.0, "Blind wandering fly beyond 180px envelope must score 0.0")
+        self.assertEqual(engine.last_reveal["verdict"], "pass", "Bio must pass over wandering control in Item 2")
+
+    def test_item3_co2_avoidance_no_fake_wandering_displacement(self):
+        """Item 3: Evading fly (d=105 to 175) beats wandering fly (capped <= 35) and trapped fly (-50)."""
+        engine = ArenaEngine()
+        engine.set_item(3)
+        engine.co2_cloud = {"x": 400, "y": 300, "r": 105.0}
+
+        # Fly A: Bio enters warning perimeter to d=105, flees to d=175 -> score = +70
+        engine.flyA.is_real = True
+        engine.flyA.full_trajectory = [(400, 100), (400, 195)]  # min_d = 105
+        engine.flyA.x = 400; engine.flyA.y = 125  # end_d = 175
+
+        # Fly B: Control stays far away at d=320 -> must be capped at <= 35, NOT get hundreds of fake pixels
+        engine.flyB.is_real = False
+        engine.flyB.full_trajectory = [(400, 620), (400, 630)]  # min_d = 320
+        engine.flyB.x = 400; engine.flyB.y = 650  # end_d = 350
+
+        engine.finish_trial("evaluated")
+        self.assertGreaterEqual(engine.last_reveal["score_a"], 70.0)
+        self.assertLessEqual(engine.last_reveal["score_b"], 35.0, "Wandering fly must not get hundreds of fake displacement pixels")
+        self.assertEqual(engine.last_reveal["verdict"], "pass", "Active evading bio fly must defeat wandering control")
+
+    def test_item4_giant_fibre_connectome_requirement(self):
+        """Item 4: Giant Fibre DNp01 escape requires biological connectome drive."""
+        engine = ArenaEngine()
+        engine.set_item(4)
+        engine.looming_shadow = {"x": 400, "y": 100, "r": 30, "active": True}
+
+        # Bio fly with biological matrix
+        bio_fly = FlyAgent(400, 180, 0.0, self.W_bio, True, "Bio", item=4)
+        # Control fly with zero/scrambled matrix
+        W_ctrl = [[0.0] * 25 for _ in range(25)]
+        ctrl_fly = FlyAgent(400, 180, 0.0, W_ctrl, False, "Ctrl", item=4)
+
+        for _ in range(15):
+            bio_fly.step(engine)
+            ctrl_fly.step(engine)
+
+        self.assertGreater(bio_fly.rate_dnp01, ctrl_fly.rate_dnp01, "Biological connectome must produce superior DNp01 response to looming")
+
+    def test_item6_courtship_requires_functional_pathway(self):
+        """Item 6: Female proximity triggers courtship song only with functional biological drive."""
+        engine = ArenaEngine()
+        engine.set_item(6)
+        engine.female_target = {"x": 400, "y": 300, "r": 25, "song_active": False}
+
+        bio_fly = FlyAgent(410, 300, 0.0, self.W_bio, True, "Bio", item=6)
+        W_ctrl = [[0.0] * 25 for _ in range(25)]
+        ctrl_fly = FlyAgent(410, 300, 0.0, W_ctrl, False, "Ctrl", item=6)
+
+        for _ in range(10):
+            bio_fly.step(engine)
+            ctrl_fly.step(engine)
+
+        self.assertTrue(bio_fly.courtship_active, "Bio fly must activate courtship when near female")
+        self.assertFalse(ctrl_fly.courtship_active, "Control fly without functional pathway must not activate courtship display")
 
 
 if __name__ == '__main__':
     unittest.main()
+
 

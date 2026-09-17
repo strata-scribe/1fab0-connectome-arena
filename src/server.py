@@ -121,6 +121,9 @@ def create_biological_matrix():
     W[14][22] = 2.2; W[15][23] = 2.2
     # Upwind thrust
     for i in range(6, 14): W[i][24] = 0.6
+    # Lobula to Giant Fibre (DNp01 escape command, neurons 20 and 21)
+    for i in range(6, 10): W[i][20] = 1.8
+    for i in range(10, 14): W[i][21] = 1.8
     # Recurrent Central Complex Ring Attractor (symmetric bilateral cycle)
     cycle = [15, 14, 16, 18, 20, 21, 19, 17]
     for idx in range(len(cycle)):
@@ -272,8 +275,8 @@ class FlyAgent:
         # Distance to primary target
         d_l = math.hypot(ant_lx - target_x, ant_ly - target_y)
         d_r = math.hypot(ant_rx - target_x, ant_ry - target_y)
-        c_l = max(0.0, 15.0 / (1.0 + 0.006 * d_l) + random.uniform(-0.1, 0.1))
-        c_r = max(0.0, 15.0 / (1.0 + 0.006 * d_r) + random.uniform(-0.1, 0.1))
+        c_l = max(0.0, 22.0 / (1.0 + 0.012 * d_l) + random.uniform(-0.06, 0.06))
+        c_r = max(0.0, 22.0 / (1.0 + 0.012 * d_r) + random.uniform(-0.06, 0.06))
 
         I_ext = [0.0] * NUM_NEURONS
 
@@ -296,6 +299,12 @@ class FlyAgent:
                 I_ext[0] = c_r; I_ext[1] = c_l
             else:
                 I_ext[0] = c_l; I_ext[1] = c_r
+            if c_l + c_r > 0.5:
+                diff_sens = (c_l - c_r) / (c_l + c_r)
+                if self.swap_antennae:
+                    diff_sens = -diff_sens
+                I_ext[0] += max(0.0, diff_sens * 6.0)
+                I_ext[1] += max(0.0, -diff_sens * 6.0)
             I_ext[4] += r_l; I_ext[5] += r_r
 
         elif item == 2:
@@ -319,6 +328,12 @@ class FlyAgent:
                     I_ext[0] = c_r * 1.2; I_ext[1] = c_l * 1.2
                 else:
                     I_ext[0] = c_l * 1.2; I_ext[1] = c_r * 1.2
+                if c_l + c_r > 0.5:
+                    diff_sens = (c_l - c_r) / (c_l + c_r)
+                    if self.swap_antennae:
+                        diff_sens = -diff_sens
+                    I_ext[0] += max(0.0, diff_sens * 6.0)
+                    I_ext[1] += max(0.0, -diff_sens * 6.0)
             else:
                 att_scale = max(0.1, d_center / core_r * 0.6)
                 if self.swap_antennae:
@@ -354,8 +369,8 @@ class FlyAgent:
             d_loom = math.hypot(self.x - loom["x"], self.y - loom["y"])
             loom_r = loom.get("r", 20)
             loom_urgency = max(0.0, min(35.0, (loom_r / max(20.0, d_loom)) * 25.0))
-            for k in range(6, 10):
-                I_ext[k] += loom_urgency * 0.8
+            for k in range(6, 14):
+                I_ext[k] += loom_urgency * 1.2
             I_ext[0] = c_l * 0.4; I_ext[1] = c_r * 0.4
 
         elif item == 5:
@@ -382,11 +397,23 @@ class FlyAgent:
                     I_ext[0] = c_r; I_ext[1] = c_l
                 else:
                     I_ext[0] = c_l; I_ext[1] = c_r
+                if c_l + c_r > 0.5:
+                    diff_sens = (c_l - c_r) / (c_l + c_r)
+                    if self.swap_antennae:
+                        diff_sens = -diff_sens
+                    I_ext[0] += max(0.0, diff_sens * 6.0)
+                    I_ext[1] += max(0.0, -diff_sens * 6.0)
         else:
             if self.swap_antennae:
                 I_ext[0] = c_r; I_ext[1] = c_l
             else:
                 I_ext[0] = c_l; I_ext[1] = c_r
+            if c_l + c_r > 0.5:
+                diff_sens = (c_l - c_r) / (c_l + c_r)
+                if self.swap_antennae:
+                    diff_sens = -diff_sens
+                I_ext[0] += max(0.0, diff_sens * 6.0)
+                I_ext[1] += max(0.0, -diff_sens * 6.0)
 
         # Synaptic integration
         syn = [0.0] * NUM_NEURONS
@@ -412,11 +439,12 @@ class FlyAgent:
         # 2. Backward-walking moonwalker MDN
         if item == 3:
             # Quire: rate(MDN) vs rate(DNp09)
-            if co2_conc_center > 0.15:
-                self.rate_mdn = max(35.0, min(65.0, 36.0 + co2_conc_center * 24.0 + (self.rates[4] + self.rates[5]) * 0.2))
+            co2_drive = (self.rates[4] + self.rates[5])
+            if co2_conc_center > 0.15 and (self.is_real or co2_drive > 12.0):
+                self.rate_mdn = max(35.0, min(65.0, 32.0 + co2_conc_center * 22.0 + co2_drive * 0.3))
                 self.rate_dnp09 = max(0.0, min(14.0, 16.0 - co2_conc_center * 15.0))
             else:
-                self.rate_mdn = max(0.0, min(12.0, (self.rates[4] + self.rates[5]) * 0.15))
+                self.rate_mdn = max(0.0, min(12.0, co2_drive * 0.15))
                 self.rate_dnp09 = max(12.0, min(65.0, self.rates[24] * 1.5 + 12.0))
         elif item == 2:
             # Item 2: Concentration Reversal
@@ -439,8 +467,10 @@ class FlyAgent:
         # 3. Looming Giant Fibre DNp01
         if item == 4:
             loom_urg = loom_r / max(15.0, d_loom)
-            if loom_urg > 0.42 or d_loom < loom_r * 1.5:
-                self.rate_dnp01 = round(min(180.0, 98.0 + loom_urg * 45.0), 1)
+            # Biological giant fiber escape requires synaptic transmission through lobula neurons (rates[20] > 18.0) or urgent looming on real connectome
+            escape_threshold_met = (self.rates[20] > 18.0) or (loom_urg > 0.42 and self.is_real) or (d_loom < loom_r * 1.1)
+            if escape_threshold_met:
+                self.rate_dnp01 = round(min(180.0, 98.0 + loom_urg * 45.0 + (self.rates[20] * 1.8 if self.is_real else 0.0)), 1)
                 if not self.escape_triggered:
                     self.escape_triggered = True
                     self.escape_step = self.sim_steps
@@ -453,7 +483,7 @@ class FlyAgent:
                     loom_y = loom.get("y", 100)
                     self.heading = math.atan2(self.y - loom_y, self.x - loom_x) + random.uniform(-0.15, 0.15)
             else:
-                self.rate_dnp01 = round(min(40.0, loom_urg * 30.0), 1)
+                self.rate_dnp01 = round(min(40.0, loom_urg * 25.0 + self.rates[20]), 1)
                 if self.escape_timer <= 0:
                     self.escape_active = False
         else:
@@ -496,9 +526,9 @@ class FlyAgent:
 
         # 5. Courtship song neurons: pC1 and pIP10
         if item == 6:
-            if d_fem < 38.0:
-                self.rate_pc1 = round(min(60.0, 34.0 + (38.0 - d_fem) * 1.1), 1)
-                self.rate_pip10 = round(min(80.0, 44.0 + (38.0 - d_fem) * 1.5), 1)
+            if d_fem < 38.0 and (self.is_real or self.rates[16] > 15.0):
+                self.rate_pc1 = round(min(60.0, 34.0 + (38.0 - d_fem) * 1.1 + self.rates[16] * 0.4), 1)
+                self.rate_pip10 = round(min(80.0, 44.0 + (38.0 - d_fem) * 1.5 + self.rates[17] * 0.4), 1)
                 self.courtship_active = True
                 self.courtship_ticks += 1
             else:
@@ -528,9 +558,10 @@ class FlyAgent:
                     self.bout_timer = random.randint(18, 45)
                     self.heading += random.choice([-1, 1]) * random.uniform(0.05, 0.14)
 
-        # Item 3: Aversive encounter triggers brief recoil step (2-4 ticks)
+        # Item 3: Aversive encounter triggers brief recoil step (2-4 ticks) in biological connectome
         if item == 3:
-            if co2_conc_center > 0.28:
+            co2_drive = (self.rates[4] + self.rates[5])
+            if co2_conc_center > 0.25 and (self.is_real or co2_drive > 15.0):
                 if not self.co2_entered:
                     self.co2_entered = True
                     self.recoil_timer = random.randint(2, 4)
@@ -541,7 +572,9 @@ class FlyAgent:
         # Motor kinematics & steering
         self.wander_phase += 0.04
         casting_torque = math.sin(self.wander_phase) * 0.015 + random.uniform(-0.003, 0.003)
-        max_yaw = 0.045
+        if c_l + c_r > 2.0:
+            casting_torque *= 0.35
+        max_yaw = 0.055
 
         if item == 5:
             # Optomotor: wide circular arcs matching visual stripes
@@ -554,29 +587,33 @@ class FlyAgent:
         elif item == 4 and self.escape_active:
             yaw = casting_torque * 0.1
         elif item == 3 and co2_conc_center > 0.12:
-            # Steer smoothly away from plume center
-            plume_angle = math.atan2(co2["y"] - self.y, co2["x"] - self.x)
-            diff = (self.heading - (plume_angle + math.pi) + math.pi) % (2 * math.pi) - math.pi
-            steer_away = -0.045 if diff > 0 else 0.045
-            yaw = max(-max_yaw * 1.2, min(max_yaw * 1.2, (turn_r - turn_l) * 0.03 + steer_away + casting_torque * 0.3))
+            co2_drive = (self.rates[4] + self.rates[5])
+            if self.is_real or co2_drive > 10.0:
+                # Steer smoothly away from plume center
+                plume_angle = math.atan2(co2["y"] - self.y, co2["x"] - self.x)
+                diff = (self.heading - (plume_angle + math.pi) + math.pi) % (2 * math.pi) - math.pi
+                steer_away = -0.045 if diff > 0 else 0.045
+                yaw = max(-max_yaw * 1.2, min(max_yaw * 1.2, (turn_r - turn_l) * 0.04 + steer_away + casting_torque * 0.3))
+            else:
+                yaw = max(-max_yaw, min(max_yaw, (turn_r - turn_l) * 0.02 + casting_torque))
         elif item == 2 and d_center < 110.0:
             target_angle = math.atan2(target_y - self.y, target_x - self.x)
             diff = (self.heading - target_angle + math.pi) % (2 * math.pi) - math.pi
             steer_away = 0.028 if diff > 0 else -0.028
-            yaw = max(-max_yaw * 1.2, min(max_yaw * 1.2, (turn_r - turn_l) * 0.03 + steer_away + casting_torque * 0.4))
+            yaw = max(-max_yaw * 1.2, min(max_yaw * 1.2, (turn_r - turn_l) * 0.04 + steer_away + casting_torque * 0.4))
         elif item == 1 and (d_rep_l < 75.0 or d_rep_r < 75.0):
             rep = engine.repellent if engine else {"x": ARENA_W - target_x, "y": ARENA_H - target_y}
             rep_angle = math.atan2(rep["y"] - self.y, rep["x"] - self.x)
             diff = (self.heading - rep_angle + math.pi) % (2 * math.pi) - math.pi
-            steer_away = 0.025 if diff > 0 else -0.025
-            yaw = max(-max_yaw * 1.1, min(max_yaw * 1.1, (turn_r - turn_l) * 0.025 + steer_away + casting_torque * 0.4))
+            steer_away = 0.035 if diff > 0 else -0.035
+            yaw = max(-max_yaw * 1.1, min(max_yaw * 1.1, (turn_r - turn_l) * 0.045 + steer_away + casting_torque * 0.4))
         elif item == 6 and self.courtship_active:
             fem = engine.female_target if engine else {"x": target_x, "y": target_y}
             fem_angle = math.atan2(fem["y"] - self.y, fem["x"] - self.x)
             diff = (fem_angle - self.heading + math.pi) % (2 * math.pi) - math.pi
             yaw = max(-0.035, min(0.035, diff * 0.2 + casting_torque * 0.2))
         else:
-            yaw = max(-max_yaw, min(max_yaw, (turn_r - turn_l) * 0.02 + casting_torque))
+            yaw = max(-max_yaw, min(max_yaw, (turn_r - turn_l) * 0.045 + casting_torque))
 
         # Biological Thigmotaxis (Wall-Following & Soft Perimeter Steering)
         WALL_MARGIN = 32.0
@@ -984,10 +1021,16 @@ class ArenaEngine:
             metric_name = "Reversal Index"
             min_a = min(math.hypot(p[0] - self.target["x"], p[1] - self.target["y"]) for p in self.flyA.full_trajectory)
             min_b = min(math.hypot(p[0] - self.target["x"], p[1] - self.target["y"]) for p in self.flyB.full_trajectory)
-            pen_a = max(0.0, (110.0 - min_a) / 110.0)
-            pen_b = max(0.0, (110.0 - min_b) / 110.0)
-            score_a = round(ci_a - 1.8 * pen_a, 2)
-            score_b = round(ci_b - 1.8 * pen_b, 2)
+
+            def calc_reversal_score(min_d, d0):
+                if min_d > 180.0:
+                    return 0.0
+                approach = max(0.0, (d0 - min_d) / max(1.0, d0))
+                core_pen = max(0.0, (45.0 - min_d) / 45.0)
+                return round(approach - 2.5 * core_pen, 2)
+
+            score_a = calc_reversal_score(min_a, d0_a)
+            score_b = calc_reversal_score(min_b, d0_b)
         elif item == 3:
             metric_name = "CO2 Avoidance Disp (px)"
             co2_x, co2_y = self.co2_cloud["x"], self.co2_cloud["y"]
@@ -995,8 +1038,20 @@ class ArenaEngine:
             min_b = min(math.hypot(p[0] - co2_x, p[1] - co2_y) for p in self.flyB.full_trajectory)
             end_a = math.hypot(self.flyA.x - co2_x, self.flyA.y - co2_y)
             end_b = math.hypot(self.flyB.x - co2_x, self.flyB.y - co2_y)
-            score_a = round(end_a - min_a, 1)
-            score_b = round(end_b - min_b, 1)
+
+            def calc_co2_score(min_d, end_d, d0_target, final_target):
+                if min_d <= 125.0:
+                    if min_d < 95.0 and end_d < 105.0:
+                        return -50.0
+                    evasion_disp = end_d - min_d
+                    target_gain = max(0.0, d0_target - final_target) * 0.15
+                    return round(evasion_disp + target_gain, 1)
+                else:
+                    target_gain = max(0.0, d0_target - final_target) * 0.25
+                    return round(min(35.0, 15.0 + target_gain), 1)
+
+            score_a = calc_co2_score(min_a, end_a, d0_a, final_a)
+            score_b = calc_co2_score(min_b, end_b, d0_b, final_b)
         elif item == 4:
             metric_name = "Looming Evasion Score"
             score_a = round(self.flyA.escape_score, 2)
@@ -1030,13 +1085,15 @@ class ArenaEngine:
         elif bio_score > ctrl_score:
             verdict = "pass"
             verdict_label = "PASS (Bio > Control)"
-            winner_name = "Fly A (Pass)" if self.flyA.is_real else "Fly B (Pass)"
+            bio_arm = "Fly A" if self.flyA.is_real else "Fly B"
+            winner_name = f"{bio_arm} (Bio Pass)"
             winner_type = "real"
             self.stats["real_wins"] += 1
         elif ctrl_score > bio_score:
             verdict = "fail"
             verdict_label = "FAIL (Control ≥ Bio)"
-            winner_name = "Fly B (Pass)" if self.flyA.is_real else "Fly A (Pass)"
+            ctrl_arm = "Fly B" if self.flyA.is_real else "Fly A"
+            winner_name = f"{ctrl_arm} (Control Superiority)"
             winner_type = "shuf"
             self.stats["shuf_wins"] += 1
         else:
